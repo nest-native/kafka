@@ -6,8 +6,8 @@ Operator guide for this project. All decision logic lives in
 ## Briefing folder
 
 ```
-AI_CODING_GUIDELINES.md             (the constitution; tracked at repo root)
 .briefing/
+├── AI_CODING_GUIDELINES.md         (the constitution; gitignored at the repo root; lives here)
 ├── BRIEF.md                        (the implementation brief)
 ├── PROMPT.md                       (the agent's full instructions)
 ├── RUNBOOK.md                      (this file)
@@ -17,7 +17,7 @@ AI_CODING_GUIDELINES.md             (the constitution; tracked at repo root)
 └── LAST_RUN.json                   (written after each invocation; gitignored)
 ```
 
-`AI_CODING_GUIDELINES.md` evolves via PRs (subject to safety check #5).
+`.briefing/AI_CODING_GUIDELINES.md` evolves via PRs (subject to safety check #5).
 
 ## Run
 
@@ -39,7 +39,7 @@ Read `.briefing/LAST_RUN.json` for the reason. Common cases:
 
 | Reason | Action |
 | --- | --- |
-| `Constitutional change requires manual review. PR=<num>` | Expected when the agent edited `AI_CODING_GUIDELINES.md`. Review the diff; if approved, `gh pr merge <num> --squash --delete-branch` and re-run (the agent auto-detects the merge via Phase 1 Case D and advances). If declined, `gh pr close <num>` and edit STATE.json to set `status="pending"` with `current_branch` and `current_pr` cleared. |
+| `Constitutional change requires manual review. PR=<num>` | Expected when the agent edited `.briefing/AI_CODING_GUIDELINES.md`. Review the diff; if approved, `gh pr merge <num> --squash --delete-branch` and re-run (the agent auto-detects the merge via Phase 1 Case D and advances). If declined, `gh pr close <num>` and edit STATE.json to set `status="pending"` with `current_branch` and `current_pr` cleared. |
 | `PR <n> was closed without merging` | Either re-open the PR (then re-run) OR edit STATE.json: set `status="pending"`, clear `current_branch` and `current_pr`. |
 | `CI failing after 3 fix attempts` | Inspect logs in `runs/`. Fix manually (push a commit yourself) OR update BRIEF.md to disambiguate. Then edit STATE.json: set `status="in_pr"` to re-poll. |
 | `All milestones complete` | You're done. Inspect, decide on release. |

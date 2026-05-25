@@ -12,7 +12,7 @@
 
 ## 1. Read these first
 
-This package's constitution is `AI_CODING_GUIDELINES.md` at the repo
+This package's constitution is `.briefing/AI_CODING_GUIDELINES.md` at the repo
 root. Read it end-to-end before writing code. It is the SOLE governing
 document for this package — no other guideline files apply.
 
@@ -123,7 +123,7 @@ Testing:
 - `KafkaTestModule` with in-memory transport for unit tests
 - Driver-backed integration tests gated on CI Kafka service (skip
   locally if env missing, per the "driver samples stay app-owned"
-  decision in `AI_CODING_GUIDELINES.md` §12)
+  decision in `.briefing/AI_CODING_GUIDELINES.md` §12)
 
 Enhancer pipeline integration is NON-NEGOTIABLE: `@UseGuards`,
 `@UseInterceptors`, `@UsePipes`, `@UseFilters` must work on handler
@@ -142,7 +142,7 @@ document the pattern), AsyncAPI generation.
 
 ## 9. Design questions to settle in v1
 
-Document the answers in the package's `AI_CODING_GUIDELINES.md` before the
+Document the answers in the package's `.briefing/AI_CODING_GUIDELINES.md` before the
 first substantive PR:
 
 1. **Rebalance-safe consumption.** In-flight messages must complete or be
@@ -169,9 +169,8 @@ locally when `KAFKA_BROKERS` env is missing.
 ## 11. Milestones
 
 1. **Bootstrap.** Repo skeleton matching `nest-trpc-native` exactly. Empty
-   package. CI green. Tag `v0.0.1-scaffold`. (`AI_CODING_GUIDELINES.md`
-   is already at the repo root from the initial commit; no need to
-   create it.)
+   package. CI green. Tag `v0.0.1-scaffold`. (`.briefing/AI_CODING_GUIDELINES.md`
+   is already in the repo from the initial commit; no need to create it.)
 2. `KafkaModule.forRoot()` + producer service. One handler that logs
    messages. Smoke test against a local Kafka container.
 3. `@KafkaConsumer` + `@KafkaHandler` with full enhancer pipeline. Showcase
@@ -186,7 +185,7 @@ locally when `KAFKA_BROKERS` env is missing.
 
 ## 12. First-session checklist
 
-1. Read `AI_CODING_GUIDELINES.md` in full (the constitution).
+1. Read `.briefing/AI_CODING_GUIDELINES.md` in full (the constitution).
 2. Read this brief end-to-end.
 3. Confirm latest published versions of `@confluentinc/kafka-javascript`
    and the existing nest-native packages on npm.
@@ -219,7 +218,7 @@ locally when `KAFKA_BROKERS` env is missing.
 
 ## 15. References
 
-- This project's constitution: `AI_CODING_GUIDELINES.md` at the repo root.
+- This project's constitution: `.briefing/AI_CODING_GUIDELINES.md`.
 - Existing nest-native packages as concrete templates:
   - https://github.com/nest-native/nest-drizzle-native
   - https://github.com/nest-native/nest-trpc-native

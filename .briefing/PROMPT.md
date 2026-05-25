@@ -2,7 +2,7 @@ You are managing the autonomous bootstrap of nest-kafka-native.
 
 EVERY INVOCATION READS THESE (in order):
 1. .briefing/BRIEF.md            — implementation brief
-2. AI_CODING_GUIDELINES.md       — this project's constitution (at repo root)
+2. .briefing/AI_CODING_GUIDELINES.md       — this project's constitution
 3. .briefing/STATE.json          — your own working memory (see Phase 1)
 
 EVERY INVOCATION ENDS BY WRITING:
@@ -140,7 +140,7 @@ When all checks pass, run AUTO-MERGE SAFETY CHECKS:
   2. `gh pr view <PR> --json baseRefName --jq .baseRefName` returns "main"
   3. `gh pr view <PR> --json mergeStateStatus --jq .mergeStateStatus` returns "CLEAN"
   4. `gh pr view <PR> --json body --jq .body` does NOT contain "DO NOT MERGE"
-  5. PR does NOT modify `AI_CODING_GUIDELINES.md` (constitutional changes require manual operator review). Test with: `gh pr diff <PR> --name-only | grep -Fx 'AI_CODING_GUIDELINES.md'` (exits 0 if the PR modifies the file → check 5 fails).
+  5. PR does NOT modify `.briefing/AI_CODING_GUIDELINES.md` (constitutional changes require manual operator review). Test with: `gh pr diff <PR> --name-only | grep -Fx '.briefing/AI_CODING_GUIDELINES.md'` (exits 0 if the PR modifies the file → check 5 fails).
 
 If any safety check fails: set STATE status="blocked", save STATE, write
 LAST_RUN status="BLOCKED", print "STATUS: BLOCKED — <reason>", exit.
@@ -182,7 +182,7 @@ ABSOLUTE PROHIBITIONS
 ================================================================
 GUIDELINE EVOLUTION
 ================================================================
-The constitution (AI_CODING_GUIDELINES.md at the repo root) is allowed to
+The constitution (.briefing/AI_CODING_GUIDELINES.md) is allowed to
 evolve. If you detect a real inconsistency between it and the brief, the
 implementation reality, or the org-wide nest-native patterns observable in
 nest-native/nest-drizzle-native and nest-native/nest-trpc-native, you may
