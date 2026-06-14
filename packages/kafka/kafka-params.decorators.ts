@@ -1,6 +1,6 @@
 import { createParamDecorator, ExecutionContext } from '@nestjs/common';
-import { KafkaContext } from './kafka-context';
-import { KafkaMessageHeaders } from './driver';
+import { KafkaBatchContext, KafkaContext } from './kafka-context';
+import { KafkaConsumerBatch, KafkaMessageHeaders } from './driver';
 
 /**
  * Parameter decorators for `@KafkaHandler` methods.
@@ -88,6 +88,32 @@ export const KafkaHeaders = createParamDecorator(
 export const KafkaCtx = createParamDecorator(
   (_data: unknown, ctx: ExecutionContext): KafkaContext =>
     ctx.switchToRpc().getContext<KafkaContext>(),
+);
+
+/**
+ * Inject the raw {@link KafkaConsumerBatch} (topic, partition, original messages)
+ * into a `batch: true` handler parameter.
+ *
+ * Use it alongside `@KafkaMessage()` — which resolves to the array of
+ * deserialized payloads on a batch handler — when you also need the per-message
+ * keys, headers, or offsets the deserialized payloads drop.
+ *
+ * @example
+ * ```ts
+ * @KafkaHandler('metrics', { batch: true })
+ * handle(
+ *   @KafkaMessage() metrics: Metric[],
+ *   @KafkaBatch() batch: KafkaConsumerBatch,
+ * ) {
+ *   batch.partition; // the partition the whole batch came from
+ * }
+ * ```
+ *
+ * @publicApi
+ */
+export const KafkaBatch = createParamDecorator(
+  (_data: unknown, ctx: ExecutionContext): KafkaConsumerBatch =>
+    ctx.switchToRpc().getContext<KafkaBatchContext>().getBatch(),
 );
 
 function isRecord(value: unknown): value is Record<string, unknown> {

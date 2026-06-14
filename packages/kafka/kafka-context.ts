@@ -1,4 +1,4 @@
-import { KafkaMessageHeaders } from './driver';
+import { KafkaConsumerBatch, KafkaMessageHeaders } from './driver';
 
 /**
  * An empty, frozen header map returned when a consumed message carries no
@@ -72,5 +72,41 @@ export class KafkaContext {
    */
   getHeaders(): KafkaMessageHeaders {
     return this.message.headers ?? EMPTY_HEADERS;
+  }
+}
+
+/**
+ * Raw transport context for a batch handler — one consumed topic-partition
+ * batch.
+ *
+ * A `batch: true` `@KafkaHandler` runs once per fetched batch and receives this
+ * context through `@KafkaCtx()` (and the raw {@link KafkaConsumerBatch} through
+ * `@KafkaBatch()`). It mirrors {@link KafkaContext}'s accessor names for the
+ * topic and partition the batch was fetched from, and exposes the raw batch so a
+ * handler can reach per-message offsets, keys, and headers.
+ */
+export class KafkaBatchContext {
+  constructor(private readonly batch: KafkaConsumerBatch) {}
+
+  /**
+   * The topic the batch was fetched from.
+   */
+  getTopic(): string {
+    return this.batch.topic;
+  }
+
+  /**
+   * The partition the batch was fetched from.
+   */
+  getPartition(): number {
+    return this.batch.partition;
+  }
+
+  /**
+   * The raw batch (topic, partition, and the original messages). This is the
+   * value resolved by the `@KafkaBatch()` parameter decorator.
+   */
+  getBatch(): KafkaConsumerBatch {
+    return this.batch;
   }
 }

@@ -1,0 +1,25 @@
+{
+  "name": "nest-native-kafka-sample-04-batch-concurrency",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Sample 04 - batch consumption and per-topic concurrency (nestjs/nest#12703, #12355)",
+  "license": "MIT",
+  "scripts": {
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "smoke": "ts-node --transpile-only scripts/smoke.ts",
+    "test": "npm run typecheck && npm run smoke",
+    "start": "ts-node --transpile-only src/main.ts"
+  },
+  "dependencies": {
+    "@nestjs/common": "11.1.26",
+    "@nestjs/core": "11.1.26",
+    "@nest-native/kafka": "0.0.0",
+    "reflect-metadata": "0.2.2",
+    "rxjs": "7.8.2"
+  },
+  "devDependencies": {
+    "@types/node": "25.9.0",
+    "ts-node": "10.9.2",
+    "typescript": "6.0.3"
+  }
+}

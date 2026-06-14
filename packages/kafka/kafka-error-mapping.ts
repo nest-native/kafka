@@ -1,5 +1,14 @@
 import { HttpException } from '@nestjs/common';
-import { KafkaContext } from './kafka-context';
+import { KafkaBatchContext, KafkaContext } from './kafka-context';
+
+/**
+ * The transport context handed to a {@link KafkaErrorMapper}: the per-message
+ * {@link KafkaContext} for a single-message handler, or the
+ * {@link KafkaBatchContext} for a batch handler. Both expose `getTopic()` /
+ * `getPartition()` so a mapper can branch on the failed topic without caring
+ * which consumption mode produced it.
+ */
+export type KafkaErrorContext = KafkaContext | KafkaBatchContext;
 
 /**
  * What the transport does with a message after a handler (or its enhancer
@@ -23,7 +32,7 @@ export type KafkaErrorBehavior = 'commit' | 'retry';
  */
 export type KafkaErrorMapper = (
   error: unknown,
-  context: KafkaContext,
+  context: KafkaErrorContext,
 ) => KafkaErrorBehavior;
 
 /**
@@ -56,7 +65,7 @@ export const defaultKafkaErrorMapper: KafkaErrorMapper = error => {
  */
 export function applyKafkaErrorBehavior(
   error: unknown,
-  context: KafkaContext,
+  context: KafkaErrorContext,
   mapper: KafkaErrorMapper,
 ): void {
   if (mapper(error, context) === 'retry') {

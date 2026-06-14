@@ -13,9 +13,10 @@
 > `KafkaProducerService` (`send`, `sendBatch`, `transactional`),
 > `@InjectKafkaProducer()`, the consumer decorators (`@KafkaConsumer`,
 > `@KafkaHandler`) with the full Nest enhancer pipeline, the parameter decorators
-> (`@KafkaMessage`, `@KafkaHeaders`, `@KafkaCtx`), error mapping, and graceful
-> shutdown exist. Batch consume, per-topic concurrency, and the `KafkaTestModule`
-> land in later milestones. Do not depend on this in production yet.
+> (`@KafkaMessage`, `@KafkaHeaders`, `@KafkaCtx`, `@KafkaBatch`), error mapping,
+> graceful shutdown, batch consumption, per-topic concurrency, and backpressure
+> exist. The `KafkaTestModule` lands in a later milestone. Do not depend on this
+> in production yet.
 
 ## What This Is
 
@@ -196,11 +197,48 @@ KafkaModule.forRoot({
 });
 ```
 
+### Batch consumption and per-topic concurrency
+
+Opt a handler into batch mode to process a whole fetched topic-partition batch at
+once instead of one message at a time. `@KafkaMessage()` then resolves to the
+array of deserialized payloads, and `@KafkaBatch()` resolves to the raw
+`KafkaConsumerBatch` (topic, partition, original messages with keys, headers, and
+offsets):
+
+```ts
+@KafkaConsumer('metrics', { groupId: 'aggregator', concurrency: 2 })
+export class MetricsConsumer {
+  @KafkaHandler(undefined, { batch: true }) // inherits the consumer's topic
+  aggregate(
+    @KafkaMessage() metrics: Metric[],
+    @KafkaBatch() batch: KafkaConsumerBatch,
+  ) {
+    // runs once per fetched batch; batch.partition is the source partition
+  }
+}
+```
+
+- **Per-topic concurrency (`nestjs/nest#12703`).** `concurrency` sets the
+  consumer's `partitionsConsumedConcurrently`. The default is `1` (strict
+  per-partition ordering); raising it processes partitions concurrently while
+  preserving order within each partition. Resolution is handler → consumer →
+  `KafkaModule.forRoot({ concurrency })` → `1`.
+- **Rebalance safety (`nestjs/nest#12355`).** Batch consumers resolve each
+  message's offset as the batch is processed (the client's all-or-nothing
+  auto-resolve is disabled), so a partition revoked mid-batch keeps the progress
+  already made instead of replaying the whole batch or hanging.
+- **Backpressure.** `maxInFlight` caps how many messages/batches a consumer
+  processes at once, so a fast broker cannot overwhelm slow handlers. The default
+  is uncapped (`0`); it resolves handler → consumer → module the same way as
+  `concurrency`.
+- Per-message and batch handlers in the same group always run on separate Kafka
+  consumers, because a consumer runs either `eachMessage` or `eachBatch`.
+
 ### Graceful shutdown
 
 On `app.close()` the transport stops accepting newly delivered messages, drains
-the messages already in flight so no handler is interrupted mid-message, then
-disconnects every consumer. Enable Nest's shutdown hooks
+the messages (and batches) already in flight so no handler is interrupted
+mid-message, then disconnects every consumer. Enable Nest's shutdown hooks
 (`app.enableShutdownHooks()`) for it to run on `SIGTERM`/`SIGINT`.
 
 ### Testing without a broker

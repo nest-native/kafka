@@ -4,7 +4,7 @@ import { Controller } from '@nestjs/common/interfaces';
 import { ExecutionContextHost } from '@nestjs/core/helpers/execution-context-host';
 import { STATIC_CONTEXT } from '@nestjs/core/injector/constants';
 import { isObservable, lastValueFrom } from 'rxjs';
-import { KafkaContext } from './kafka-context';
+import { KafkaBatchContext, KafkaContext } from './kafka-context';
 import {
   KafkaParamsPipes,
   KafkaParamsResolver,
@@ -134,11 +134,15 @@ export interface KafkaHandlerContext {
 }
 
 /**
- * The payload a built handler runner receives for every consumed message.
+ * The payload a built handler runner receives for every consumed message (or, for
+ * a batch handler, every fetched batch). `payload` is the deserialized message
+ * for a per-message handler and the array of deserialized messages for a batch
+ * handler; `context` is the matching {@link KafkaContext} or
+ * {@link KafkaBatchContext}.
  */
 export interface KafkaHandlerInvocation {
   payload: unknown;
-  context: KafkaContext;
+  context: KafkaContext | KafkaBatchContext;
 }
 
 /**
