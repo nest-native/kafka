@@ -95,14 +95,94 @@ export interface KafkaDriverProducer {
 }
 
 /**
- * The driver the module wires into the producer service. A driver knows how to
- * create producers; later milestones extend it with consumer creation.
+ * A message handed to a consumer handler, mirroring the KafkaJS-compatible
+ * `Message` shape Confluent's client emits per partition.
+ */
+export interface KafkaConsumerMessage {
+  key?: Buffer | string | null;
+  value: Buffer | string | null;
+  partition?: number;
+  offset?: string;
+  timestamp?: string;
+  headers?: KafkaMessageHeaders;
+}
+
+/**
+ * The argument the driver passes to the `eachMessage` callback, mirroring the
+ * KafkaJS-compatible payload Confluent's client emits: the topic, the partition,
+ * and the message.
+ */
+export interface KafkaEachMessagePayload {
+  topic: string;
+  partition: number;
+  message: KafkaConsumerMessage;
+}
+
+/**
+ * The per-message callback a consumer runs. Returning resolves the message so
+ * the offset can be committed; throwing surfaces the failure to the transport's
+ * error handling (milestone 4 maps Nest exceptions onto consumer behaviour).
+ */
+export type KafkaEachMessageHandler = (
+  payload: KafkaEachMessagePayload,
+) => Promise<void>;
+
+/**
+ * Subscription request forwarded to the consumer, mirroring the
+ * KafkaJS-compatible `subscribe` options.
+ */
+export interface KafkaSubscription {
+  topics: string[];
+  fromBeginning?: boolean;
+}
+
+/**
+ * Runtime configuration for {@link KafkaDriverConsumer.run}, mirroring the
+ * KafkaJS-compatible `run` options the package relies on.
+ */
+export interface KafkaConsumerRunConfig {
+  eachMessage: KafkaEachMessageHandler;
+}
+
+/**
+ * The minimal consumer surface the package depends on. This is the subset of the
+ * Confluent `Consumer` type the transport uses to subscribe to topics and
+ * dispatch messages through the Nest enhancer pipeline.
+ */
+export interface KafkaDriverConsumer {
+  connect(): Promise<void>;
+  disconnect(): Promise<void>;
+  subscribe(subscription: KafkaSubscription): Promise<void>;
+  run(config: KafkaConsumerRunConfig): Promise<void>;
+}
+
+/**
+ * Per-consumer configuration forwarded to `kafka.consumer(...)`. The `groupId`
+ * is the only field the package models; everything else passes straight through
+ * so advanced Confluent options are available without the package modelling
+ * them.
+ */
+export interface KafkaConsumerConfig {
+  groupId?: string;
+  [option: string]: unknown;
+}
+
+/**
+ * The driver the module wires into the producer service and the consumer
+ * transport. A driver knows how to create producers and consumers.
  */
 export interface KafkaClientDriver {
   /**
    * Create a producer bound to the configured broker connection.
    */
   createProducer(): KafkaDriverProducer;
+
+  /**
+   * Create a consumer bound to the configured broker connection. The optional
+   * `config` carries the resolved consumer group and any advanced Confluent
+   * options.
+   */
+  createConsumer(config?: KafkaConsumerConfig): KafkaDriverConsumer;
 }
 
 /**
@@ -143,6 +223,7 @@ export type KafkaDriverFactory = (
  */
 interface ConfluentKafka {
   producer(config?: Record<string, unknown>): KafkaDriverProducer;
+  consumer(config?: Record<string, unknown>): KafkaDriverConsumer;
 }
 
 interface ConfluentKafkaConstructor {
@@ -170,6 +251,8 @@ export const createConfluentDriver: KafkaDriverFactory = (
 
   return {
     createProducer: () => kafka.producer({ kafkaJS: { ...producerConfig } }),
+    createConsumer: (consumerConfig = {}) =>
+      kafka.consumer({ kafkaJS: { ...consumerConfig } }),
   };
 };
 

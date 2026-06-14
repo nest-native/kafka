@@ -2,15 +2,25 @@
 
 The sample tree follows the same shape as the main quality strategy:
 
-- `00-showcase`: the full integration baseline (arrives in a later milestone).
+- `00-showcase`: the full integration baseline; grows with each milestone.
 - `01-*` onward: focused samples that isolate one topic each.
+
+Current samples:
+
+- `00-showcase` — producer + consumer wired together across two feature modules,
+  the full enhancer pipeline, request-scoped DI, and a chained consumer.
+- `01-producer-basics` — `KafkaModule.forRoot`, the producer service, and a
+  logging handler.
+- `02-consumer-enhancers` — `@KafkaConsumer` / `@KafkaHandler` with guards,
+  interceptors, pipes, and filters.
 
 ## Commands
 
 ```bash
 npm run ci:sample
 npm run sample:focused
-npm run test --workspace nest-native-kafka-sample-01-producer-basics
+npm run test --workspace nest-native-kafka-showcase
+npm run test --workspace nest-native-kafka-sample-02-consumer-enhancers
 ```
 
 ## Brokers

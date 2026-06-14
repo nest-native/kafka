@@ -8,7 +8,21 @@ package release is useful for users.
 
 ## Unreleased
 
-No user-facing changes yet.
+### Added
+
+- `@KafkaConsumer(topic?, options?)` (class) and `@KafkaHandler(topic?, options?)`
+  (method) decorators that register Kafka consumers and route messages to handler
+  methods. Handlers run through the full Nest enhancer pipeline — `@UseGuards`,
+  `@UseInterceptors`, `@UsePipes`, and `@UseFilters` all work, exactly as they do
+  for `@nestjs/microservices` handlers — and request-scoped consumers resolve a
+  fresh instance per consumed message.
+- `KafkaContext`, the raw transport context exposed as the handler's second
+  argument and through `ExecutionContext.switchToRpc().getContext()`.
+- The driver gains `createConsumer(config?)`; the default Confluent driver
+  forwards the resolved consumer group and advanced options to the client.
+- Samples: `00-showcase` (producer + consumer across two feature modules with the
+  full enhancer pipeline, request-scoped DI, and a chained consumer) and
+  `02-consumer-enhancers` (a focused guard/interceptor/pipe/filter walkthrough).
 
 ## 0.0.0 - 2026-06-13
 

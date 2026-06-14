@@ -31,6 +31,12 @@ describe('InjectKafkaProducer', () => {
     const factory: KafkaDriverFactory = () => {
       const driver: KafkaClientDriver = {
         createProducer: () => producer,
+        createConsumer: () => ({
+          connect: async () => {},
+          disconnect: async () => {},
+          subscribe: async () => {},
+          run: async () => {},
+        }),
       };
       return driver;
     };

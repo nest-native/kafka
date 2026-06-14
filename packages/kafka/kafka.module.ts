@@ -1,4 +1,5 @@
 import { DynamicModule, Module, Provider, Type } from '@nestjs/common';
+import { DiscoveryModule } from '@nestjs/core';
 import {
   KafkaClientConfig,
   KafkaClientDriver,
@@ -6,6 +7,7 @@ import {
   createConfluentDriver,
 } from './driver';
 import { KafkaProducerService } from './kafka-producer.service';
+import { KafkaConsumerExplorer } from './kafka-consumer.explorer';
 import { KafkaModuleAsyncOptions, KafkaModuleOptions } from './interfaces';
 import {
   KAFKA_CLIENT_DRIVER,
@@ -41,6 +43,7 @@ export class KafkaModule {
     return {
       module: KafkaModule,
       global: options.isGlobal ?? true,
+      imports: [DiscoveryModule],
       providers: [optionsProvider, ...this.coreProviders()],
       exports: this.exportedProviders(),
     };
@@ -60,7 +63,7 @@ export class KafkaModule {
     return {
       module: KafkaModule,
       global: options.isGlobal ?? true,
-      imports: options.imports ?? [],
+      imports: [DiscoveryModule, ...(options.imports ?? [])],
       providers: [
         ...(options.extraProviders ?? []),
         optionsProvider,
@@ -104,6 +107,7 @@ export class KafkaModule {
         inject: [KAFKA_CLIENT_DRIVER],
       },
       KafkaProducerService,
+      KafkaConsumerExplorer,
     ];
   }
 

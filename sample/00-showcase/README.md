@@ -1,0 +1,39 @@
+# Sample 00 — Showcase
+
+The full integration baseline for `@nest-native/kafka`. It grows with each
+milestone; today it demonstrates milestones 2 and 3.
+
+What it shows:
+
+- `KafkaModule.forRoot` wiring the driver and the producer service.
+- Two feature modules (`orders`, `notifications`) each using
+  `KafkaModule.forFeature` to register a `@KafkaConsumer`.
+- Producer + consumer wired together: the orders consumer publishes a derived
+  notification that the notifications consumer handles.
+- The full Nest enhancer pipeline on a handler: `@UseGuards`,
+  `@UseInterceptors`, `@UsePipes`, `@UseFilters`.
+- Constructor dependency injection and a request-scoped provider
+  (`OrderAuditService`) resolved per consumed message.
+- A global module providing a shared singleton across features.
+
+Milestones still to land here: header/context parameter decorators and error
+mapping (4), batch consume + per-topic concurrency (5), the transactional
+producer (6), and the testing utilities + migration scenario (7).
+
+## Run it
+
+```bash
+# in-memory loopback broker, no Kafka required
+npm run test --workspace nest-native-kafka-showcase
+npm run start --workspace nest-native-kafka-showcase
+```
+
+## Against a real broker
+
+```bash
+KAFKA_BROKERS=localhost:9092 \
+  npm run start --workspace nest-native-kafka-showcase
+```
+
+`KAFKA_BROKERS` switches to Confluent's `@confluentinc/kafka-javascript` client.
+Broker credentials must never be committed to sample code, logs, or docs.

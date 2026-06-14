@@ -10,11 +10,12 @@
 > [!WARNING]
 > **Status: under construction.** Today the module
 > (`KafkaModule.forRoot()` / `forRootAsync()` / `forFeature()`), the
-> `KafkaProducerService` (`send`, `sendBatch`, `transactional`), and
-> `@InjectKafkaProducer()` exist. The consumer decorators (`@KafkaConsumer`,
-> `@KafkaHandler`) and the parameter decorators (`@KafkaMessage`,
-> `@KafkaHeaders`, `@KafkaContext`) land in later milestones. Do not depend on
-> this in production yet.
+> `KafkaProducerService` (`send`, `sendBatch`, `transactional`),
+> `@InjectKafkaProducer()`, and the consumer decorators (`@KafkaConsumer`,
+> `@KafkaHandler`) with the full Nest enhancer pipeline exist. The parameter
+> decorators (`@KafkaMessage`, `@KafkaHeaders`, `@KafkaContext`), error mapping,
+> and graceful shutdown land in later milestones. Do not depend on this in
+> production yet.
 
 ## What This Is
 
@@ -108,6 +109,37 @@ export class OrdersService {
 
 For low-level access to the raw Confluent producer, inject it directly with
 `@InjectKafkaProducer()`.
+
+### Consuming messages
+
+Mark a class with `@KafkaConsumer` and its methods with `@KafkaHandler`. The
+methods run through the full Nest enhancer pipeline — `@UseGuards`,
+`@UseInterceptors`, `@UsePipes`, `@UseFilters` — exactly as they do for an HTTP
+controller or a `@nestjs/microservices` handler. The parsed payload is the first
+argument and the raw `KafkaContext` is the second:
+
+```ts
+import { Injectable, UseGuards } from '@nestjs/common';
+import { KafkaConsumer, KafkaContext, KafkaHandler } from '@nest-native/kafka';
+
+@Injectable()
+@KafkaConsumer('orders.placed', { groupId: 'orders-service' })
+@UseGuards(TenantGuard)
+export class OrdersConsumer {
+  @KafkaHandler()
+  handle(order: OrderPlaced, context: KafkaContext): void {
+    // runs after guards, interceptors, and pipes; exception filters wrap it
+    console.log(`order on ${context.getTopic()}`, order);
+  }
+}
+```
+
+Register the consumer (and any guard/interceptor/pipe/filter classes it uses) as
+providers, then list it in `KafkaModule.forFeature([OrdersConsumer])` or directly
+in a module's `providers`. Consumers in the same consumer group share a single
+Confluent consumer so partitions balance across instances. The payload is
+JSON-parsed by default, falling back to the decoded string for non-JSON values;
+header conventions stay neutral.
 
 ### Testing without a broker
 
