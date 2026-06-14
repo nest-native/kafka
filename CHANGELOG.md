@@ -8,8 +8,24 @@ package release is useful for users.
 
 ## Unreleased
 
+## 0.1.0 - 2026-06-14
+
+First published release. The full v1 surface — the module, the producer service,
+consumer decorators with the complete Nest enhancer pipeline, the parameter
+decorators, error mapping, batch consumption with per-topic concurrency, the
+transactional producer, `KafkaTestModule`, the migration guide, and the
+documentation site — is in place. The published package keeps `"dependencies": {}`.
+
 ### Added
 
+- A Docusaurus documentation site under `website/` covering getting started, the
+  core API (module, producer, consumers, parameter decorators), the correctness
+  guarantees (error mapping `nestjs/nest#9679`, batch + per-topic concurrency
+  `nestjs/nest#12703`, rebalance-safe offsets `nestjs/nest#12355`, transactions,
+  graceful shutdown), testing, the migration guide, the sample catalog, and the
+  project reference. CI gains a `docs-site` build job and a `deploy-docs` workflow
+  that publishes the site to GitHub Pages; `npm run ci` now runs `ci:docs` and a
+  docs supply-chain audit alongside the package checks.
 - `@KafkaConsumer(topic?, options?)` (class) and `@KafkaHandler(topic?, options?)`
   (method) decorators that register Kafka consumers and route messages to handler
   methods. Handlers run through the full Nest enhancer pipeline — `@UseGuards`,

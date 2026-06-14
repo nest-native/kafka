@@ -7,8 +7,8 @@
   <a href="https://opensource.org/licenses/MIT"><img src="https://img.shields.io/badge/license-MIT-green.svg" alt="Package License" /></a>
 </p>
 
-> [!WARNING]
-> **Status: under construction.** Today the module
+> [!NOTE]
+> **Status: 0.1.0 — first release.** The full v1 surface is in place: the module
 > (`KafkaModule.forRoot()` / `forRootAsync()` / `forFeature()`), the
 > `KafkaProducerService` (`send`, `sendBatch`, `transactional`),
 > `@InjectKafkaProducer()`, the consumer decorators (`@KafkaConsumer`,
@@ -16,8 +16,8 @@
 > (`@KafkaMessage`, `@KafkaHeaders`, `@KafkaCtx`, `@KafkaBatch`), error mapping,
 > graceful shutdown, batch consumption, per-topic concurrency, backpressure, and
 > the testing utilities (`KafkaTestModule`, `InMemoryKafkaBroker`,
-> `createMockKafkaProducer`) exist. The documentation site lands in the final
-> milestone. Do not depend on this in production yet.
+> `createMockKafkaProducer`). The [documentation site](https://nest-native.github.io/kafka/)
+> covers the whole surface.
 
 ## What This Is
 
