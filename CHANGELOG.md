@@ -48,6 +48,23 @@ package release is useful for users.
   documents `transactionalId`. Sample `05-transactions` isolates the helper
   (atomic multi-topic write, abort-on-throw, and `sendOffsets`); the showcase's
   `OrdersService.placeOrder` now publishes transactionally.
+- Testing utilities, re-exported from the package root: `KafkaTestModule`
+  (`forRoot` / `forRootAsync`) runs the whole transport — producer service, the
+  `@KafkaConsumer` enhancer pipeline, batch consumption, transactions, graceful
+  shutdown — against an in-memory `InMemoryKafkaBroker`, with no real broker and
+  no native `librdkafka`. The broker is injectable via the `KAFKA_TEST_BROKER`
+  token or `@InjectKafkaTestBroker()` and exposes `emit()` to inject consumed
+  messages and `getSent()` / `getSentTo()` to assert on produced ones.
+  `createMockKafkaProducer()` / `createMockTransaction()` provide recording
+  producer mocks for unit-testing services that inject the producer without a Nest
+  module.
+- A migration guide from `@nestjs/microservices`'s Kafka transport
+  (`docs/migration-from-nestjs-microservices.md`): the decorator/parameter/
+  producer mapping plus the behavioural deltas (explicit serialization, exception
+  mapping `nestjs/nest#9679`, per-topic concurrency `nestjs/nest#12703`,
+  rebalance-safe batch offsets `nestjs/nest#12355`, the Confluent `sendOffsets`
+  shape, and backpressure). Sample `06-microservice-migration` ports a handler
+  end-to-end and validates it with `KafkaTestModule`.
 
 ## 0.0.0 - 2026-06-13
 

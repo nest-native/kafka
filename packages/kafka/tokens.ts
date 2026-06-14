@@ -20,3 +20,11 @@ export const KAFKA_CLIENT_DRIVER = Symbol('KAFKA_CLIENT_DRIVER');
  * Token for the raw producer exposed through {@link InjectKafkaProducer}.
  */
 export const KAFKA_PRODUCER = Symbol('KAFKA_PRODUCER');
+
+/**
+ * Token for the {@link InMemoryKafkaBroker} backing {@link KafkaTestModule}.
+ *
+ * Inject it (or use `@InjectKafkaTestBroker()`) in a test to inspect produced
+ * messages and inject consumed ones.
+ */
+export const KAFKA_TEST_BROKER = Symbol('KAFKA_TEST_BROKER');

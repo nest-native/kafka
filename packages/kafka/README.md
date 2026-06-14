@@ -14,9 +14,10 @@
 > `@InjectKafkaProducer()`, the consumer decorators (`@KafkaConsumer`,
 > `@KafkaHandler`) with the full Nest enhancer pipeline, the parameter decorators
 > (`@KafkaMessage`, `@KafkaHeaders`, `@KafkaCtx`, `@KafkaBatch`), error mapping,
-> graceful shutdown, batch consumption, per-topic concurrency, and backpressure
-> exist. The `KafkaTestModule` lands in a later milestone. Do not depend on this
-> in production yet.
+> graceful shutdown, batch consumption, per-topic concurrency, backpressure, and
+> the testing utilities (`KafkaTestModule`, `InMemoryKafkaBroker`,
+> `createMockKafkaProducer`) exist. The documentation site lands in the final
+> milestone. Do not depend on this in production yet.
 
 ## What This Is
 
@@ -298,9 +299,62 @@ mid-message, then disconnects every consumer. Enable Nest's shutdown hooks
 
 ### Testing without a broker
 
-`KafkaModule.forRoot({ driverFactory })` accepts a custom driver factory so unit
-tests (and the `01-producer-basics` sample) can run with an in-memory producer
-and never touch a real broker or the native `librdkafka` binary.
+Use `KafkaTestModule` in place of `KafkaModule` to run the whole transport —
+producer service, the `@KafkaConsumer` pipeline, batch consumption, transactions,
+graceful shutdown — against an in-memory `InMemoryKafkaBroker`. No real broker, no
+native `librdkafka`, no `KAFKA_BROKERS` env required:
+
+```ts
+import { Test } from '@nestjs/testing';
+import {
+  InMemoryKafkaBroker,
+  KAFKA_TEST_BROKER,
+  KafkaTestModule,
+} from '@nest-native/kafka';
+
+const moduleRef = await Test.createTestingModule({
+  imports: [KafkaTestModule.forRoot(), OrdersModule],
+}).compile();
+await moduleRef.init(); // fires onApplicationBootstrap; consumers subscribe
+
+const broker = moduleRef.get<InMemoryKafkaBroker>(KAFKA_TEST_BROKER);
+
+// Inject a message straight to a consumer...
+await broker.emit('orders.placed', { value: JSON.stringify({ id: '1' }) });
+// ...or produce through a service and assert on what the broker recorded:
+expect(broker.getSentTo('orders.placed')).toHaveLength(1);
+
+await moduleRef.close();
+```
+
+`KafkaTestModule.forRoot(options?)` / `forRootAsync(options?)` accept the same
+options as `KafkaModule` (minus `driverFactory`, which is fixed to the in-memory
+broker) and a `broker` option to reuse an existing `InMemoryKafkaBroker`. Inject
+the broker with the `KAFKA_TEST_BROKER` token or `@InjectKafkaTestBroker()`.
+
+For a unit test of a service that injects the producer (no Nest module needed),
+reach for `createMockKafkaProducer()`, a recording mock `KafkaDriverProducer`:
+
+```ts
+import { createMockKafkaProducer, KafkaProducerService } from '@nest-native/kafka';
+
+const { producer, calls } = createMockKafkaProducer();
+const service = new KafkaProducerService(producer);
+await service.send({ topic: 'orders', messages: [{ value: 'hi' }] });
+expect(calls.send).toHaveLength(1);
+```
+
+For low-level control, `KafkaModule.forRoot({ driverFactory })` still accepts any
+custom driver factory.
+
+### Migrating from `@nestjs/microservices` Kafka
+
+Porting an app off the official Kafka transport is mostly a mechanical rename
+(`@Controller`/`@EventPattern`/`@Payload()` → `@KafkaConsumer`/`@KafkaHandler`/
+`@KafkaMessage()`), plus a few behavioural deltas (explicit serialization,
+exception mapping, the Confluent `sendOffsets` shape). The full field-by-field
+guide is in [docs/migration-from-nestjs-microservices.md](../../docs/migration-from-nestjs-microservices.md),
+validated end-to-end by `sample/06-microservice-migration`.
 
 ## Links
 

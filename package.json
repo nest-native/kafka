@@ -13,7 +13,7 @@
     "typecheck": "npm run typecheck --workspaces --if-present",
     "test": "TS_NODE_PROJECT=tsconfig.spec.json node --require ts-node/register --require reflect-metadata --test packages/kafka/test/*.spec.ts",
     "test:report": "node scripts/run-node-test-report.cjs",
-    "test:cov": "c8 --all --include \"packages/kafka/**/*.ts\" --exclude \"packages/kafka/test/**\" --exclude \"packages/kafka/interfaces.ts\" --exclude \"packages/kafka/index.ts\" --exclude \"**/*.d.ts\" --exclude \"**/dist/**\" --reporter text --reporter text-summary --reporter json-summary --reporter lcov --check-coverage --branches 100 --functions 100 --lines 100 --statements 100 npm run test:report",
+    "test:cov": "c8 --all --include \"packages/kafka/**/*.ts\" --exclude \"packages/kafka/test/**\" --exclude \"packages/kafka/interfaces.ts\" --exclude \"packages/kafka/index.ts\" --exclude \"packages/kafka/testing/index.ts\" --exclude \"**/*.d.ts\" --exclude \"**/dist/**\" --reporter text --reporter text-summary --reporter json-summary --reporter lcov --check-coverage --branches 100 --functions 100 --lines 100 --statements 100 npm run test:report",
     "test:watch": "TS_NODE_PROJECT=tsconfig.spec.json node --watch --require ts-node/register --require reflect-metadata --test packages/kafka/test/*.spec.ts",
     "complexity:check": "eslint --config eslint.complexity-check.config.mjs \"packages/kafka/**/*.ts\"",
     "complexity:report": "node scripts/collect-cognitive-complexity.mjs",
