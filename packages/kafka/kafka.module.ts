@@ -1,23 +1,31 @@
 import { DynamicModule, Module, Provider, Type } from '@nestjs/common';
+import {
+  KafkaClientConfig,
+  KafkaClientDriver,
+  KafkaDriverProducer,
+  createConfluentDriver,
+} from './driver';
+import { KafkaProducerService } from './kafka-producer.service';
 import { KafkaModuleAsyncOptions, KafkaModuleOptions } from './interfaces';
+import {
+  KAFKA_CLIENT_DRIVER,
+  KAFKA_MODULE_OPTIONS,
+  KAFKA_PRODUCER,
+} from './tokens';
 
-/**
- * Injection token for the resolved {@link KafkaModuleOptions}.
- *
- * Consumers that need the global Kafka configuration can inject this token. The
- * consumer/producer building blocks added in later milestones resolve their
- * defaults from the same provider.
- */
-export const KAFKA_MODULE_OPTIONS = Symbol('KAFKA_MODULE_OPTIONS');
+export {
+  KAFKA_CLIENT_DRIVER,
+  KAFKA_MODULE_OPTIONS,
+  KAFKA_PRODUCER,
+} from './tokens';
 
 /**
  * Root module for `@nest-native/kafka`.
  *
- * At this scaffold milestone the module only registers global configuration and
- * a feature-module entry point so applications can wire it into their root and
- * feature modules. The `@KafkaConsumer`, `@KafkaHandler`, parameter decorators,
- * and `KafkaProducerService` arrive in later milestones and build on this same
- * module shell.
+ * This milestone wires the global configuration, the Kafka driver, a single
+ * shared producer, and the {@link KafkaProducerService}. The `@KafkaConsumer`,
+ * `@KafkaHandler`, parameter decorators, and batch/transactional consumption
+ * arrive in later milestones and build on this same module shell.
  */
 @Module({})
 export class KafkaModule {
@@ -33,8 +41,8 @@ export class KafkaModule {
     return {
       module: KafkaModule,
       global: options.isGlobal ?? true,
-      providers: [optionsProvider],
-      exports: [optionsProvider],
+      providers: [optionsProvider, ...this.coreProviders()],
+      exports: this.exportedProviders(),
     };
   }
 
@@ -53,8 +61,12 @@ export class KafkaModule {
       module: KafkaModule,
       global: options.isGlobal ?? true,
       imports: options.imports ?? [],
-      providers: [...(options.extraProviders ?? []), optionsProvider],
-      exports: [optionsProvider],
+      providers: [
+        ...(options.extraProviders ?? []),
+        optionsProvider,
+        ...this.coreProviders(),
+      ],
+      exports: this.exportedProviders(),
     };
   }
 
@@ -71,5 +83,62 @@ export class KafkaModule {
       providers: [...handlers],
       exports: [...handlers],
     };
+  }
+
+  /**
+   * Providers shared by {@link forRoot} and {@link forRootAsync}: the driver,
+   * the raw producer, and the producer service.
+   */
+  private static coreProviders(): Provider[] {
+    return [
+      {
+        provide: KAFKA_CLIENT_DRIVER,
+        useFactory: (options: KafkaModuleOptions): KafkaClientDriver =>
+          this.createDriver(options),
+        inject: [KAFKA_MODULE_OPTIONS],
+      },
+      {
+        provide: KAFKA_PRODUCER,
+        useFactory: (driver: KafkaClientDriver): KafkaDriverProducer =>
+          driver.createProducer(),
+        inject: [KAFKA_CLIENT_DRIVER],
+      },
+      KafkaProducerService,
+    ];
+  }
+
+  private static exportedProviders(): NonNullable<DynamicModule['exports']> {
+    return [
+      KAFKA_MODULE_OPTIONS,
+      KAFKA_CLIENT_DRIVER,
+      KAFKA_PRODUCER,
+      KafkaProducerService,
+    ];
+  }
+
+  /**
+   * Build the driver from the resolved options, merging the `clientId`
+   * convenience option into the client config and defaulting to the lazily
+   * resolved Confluent driver.
+   */
+  private static createDriver(options: KafkaModuleOptions): KafkaClientDriver {
+    const factory = options.driverFactory ?? createConfluentDriver;
+    const clientConfig = this.resolveClientConfig(options);
+    return factory(clientConfig, options.producer ?? {});
+  }
+
+  private static resolveClientConfig(
+    options: KafkaModuleOptions,
+  ): KafkaClientConfig {
+    const clientConfig: KafkaClientConfig = {
+      brokers: [],
+      ...options.client,
+    };
+
+    if (options.clientId !== undefined) {
+      clientConfig.clientId = options.clientId;
+    }
+
+    return clientConfig;
   }
 }
