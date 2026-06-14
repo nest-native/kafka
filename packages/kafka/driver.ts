@@ -71,13 +71,61 @@ export interface KafkaRecordMetadata {
 }
 
 /**
+ * The offset of a single partition, forwarded to {@link KafkaTransaction.sendOffsets}.
+ */
+export interface KafkaPartitionOffset {
+  partition: number;
+  /**
+   * The offset to commit. To resume *after* a consumed message you commit its
+   * offset plus one — `String(Number(message.offset) + 1)` — mirroring Kafka's
+   * "next offset to read" semantics.
+   */
+  offset: string;
+}
+
+/**
+ * The partitions of one topic whose offsets are committed inside a transaction.
+ */
+export interface KafkaTopicOffsets {
+  topic: string;
+  partitions: KafkaPartitionOffset[];
+}
+
+/**
+ * Offsets committed atomically with a transaction's produced messages — the
+ * consume-process-produce ("read-process-write") primitive that gives
+ * exactly-once processing across a consume → produce step.
+ *
+ * Behavioural delta from kafkajs (document this for migrators): kafkajs takes a
+ * `consumerGroupId` string here; Confluent's client takes the live `consumer`
+ * object instead, so it can fence the group's transaction correctly. The
+ * package models the Confluent shape and forwards it untouched.
+ */
+export interface KafkaTransactionOffsets {
+  /**
+   * The consumer whose offsets are being committed. Confluent's client requires
+   * the consumer object itself (kafkajs used a `consumerGroupId` string).
+   */
+  consumer: KafkaDriverConsumer;
+  topics: KafkaTopicOffsets[];
+}
+
+/**
  * The transactional sub-surface of a producer. A transaction exposes the same
- * `send`/`sendBatch` methods as the producer plus `commit`/`abort`, matching
- * the Confluent `Transaction` type.
+ * `send`/`sendBatch` methods as the producer plus `commit`/`abort` and
+ * `sendOffsets`, matching the Confluent `Transaction` type.
  */
 export interface KafkaTransaction {
   send(record: KafkaSendRecord): Promise<KafkaRecordMetadata[]>;
   sendBatch(batch: KafkaSendBatch): Promise<KafkaRecordMetadata[]>;
+  /**
+   * Commit consumer offsets atomically with this transaction's produced
+   * messages. Use it for the consume-process-produce pattern so the offsets the
+   * consumer read and the messages the producer wrote either both land or
+   * neither does. Calling it is optional: a plain produce-only transaction never
+   * needs it.
+   */
+  sendOffsets(offsets: KafkaTransactionOffsets): Promise<void>;
   commit(): Promise<void>;
   abort(): Promise<void>;
 }
@@ -262,8 +310,19 @@ export interface KafkaClientConfig {
 /**
  * Producer configuration forwarded to `kafka.producer(...)`. Left intentionally
  * open so advanced Confluent options pass through untouched.
+ *
+ * Set `transactionalId` to turn the shared producer into a transactional one;
+ * Confluent's client then also enables idempotence automatically. A
+ * transactional producer must wrap every send in a transaction
+ * ({@link KafkaProducerService.transactional}); a non-transactional producer can
+ * still open ad-hoc transactions but offers no cross-call atomicity guarantee.
  */
 export interface KafkaProducerConfig {
+  /**
+   * Stable identifier that makes the producer transactional. Must be unique per
+   * producer instance across the cluster; reusing it fences the previous owner.
+   */
+  transactionalId?: string;
   [option: string]: unknown;
 }
 

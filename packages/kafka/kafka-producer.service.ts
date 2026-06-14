@@ -105,17 +105,44 @@ export class KafkaProducerService
    * Run `work` inside a Kafka transaction. The transaction commits when `work`
    * resolves and aborts when it rejects, re-throwing the original error so
    * callers see the failure.
+   *
+   * The callback receives the transaction handle, so it can `send`/`sendBatch`
+   * its produced messages and `sendOffsets` to commit consumer progress
+   * atomically with them (the consume-process-produce pattern). If the abort
+   * itself fails while unwinding a failed `work`, the original error still
+   * surfaces — the abort failure is attached as its `cause` so neither is lost.
    */
   async transactional<T>(work: KafkaTransactionalWork<T>): Promise<T> {
     const transaction = await this.producer.transaction();
 
+    let result: T;
     try {
-      const result = await work(transaction);
-      await transaction.commit();
-      return result;
+      result = await work(transaction);
     } catch (error) {
-      await transaction.abort();
+      await this.abortQuietly(transaction, error);
       throw error;
+    }
+
+    await transaction.commit();
+    return result;
+  }
+
+  /**
+   * Abort `transaction` while preserving `cause` as the error to throw. A
+   * failure during abort is recorded on `cause` (when it is an `Error`) instead
+   * of replacing it, so the root cause of the failed work is never masked by a
+   * secondary abort error.
+   */
+  private async abortQuietly(
+    transaction: KafkaTransaction,
+    cause: unknown,
+  ): Promise<void> {
+    try {
+      await transaction.abort();
+    } catch (abortError) {
+      if (cause instanceof Error) {
+        (cause as { cause?: unknown }).cause ??= abortError;
+      }
     }
   }
 }
