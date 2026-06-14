@@ -4,3 +4,6 @@ export * from './driver';
 export * from './tokens';
 export * from './kafka-producer.service';
 export * from './inject-kafka-producer.decorator';
+export * from './kafka-consumer.decorator';
+export * from './kafka-handler.decorator';
+export * from './kafka-context';

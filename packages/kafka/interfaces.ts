@@ -56,6 +56,58 @@ export interface KafkaModuleOptions {
 /**
  * Configuration for {@link KafkaModule.forRootAsync}.
  */
+/**
+ * Options accepted by {@link KafkaConsumer}.
+ *
+ * The class-level decorator may carry a consumer-group identifier shared by all
+ * of its handler methods. Confluent groups consumers so partitions are balanced
+ * across instances; leaving it unset lets each application choose its own group
+ * through {@link KafkaModuleOptions} or the broker default.
+ */
+export interface KafkaConsumerOptions {
+  /**
+   * The Kafka consumer group this consumer joins. When omitted the handler runs
+   * under the group resolved by the driver.
+   */
+  groupId?: string;
+}
+
+/**
+ * Resolved metadata stored on a `@KafkaConsumer` class.
+ */
+export interface KafkaConsumerMetadata {
+  /**
+   * Default topic (or pattern) applied to handler methods that do not name their
+   * own topic. Optional: a consumer can group handlers that each name their own
+   * topic.
+   */
+  topic?: string;
+  options: KafkaConsumerOptions;
+}
+
+/**
+ * Options accepted by {@link KafkaHandler}.
+ */
+export interface KafkaHandlerOptions {
+  /**
+   * Override the consumer group for this single handler. Falls back to the
+   * group declared on the owning `@KafkaConsumer`, then to the driver default.
+   */
+  groupId?: string;
+}
+
+/**
+ * Resolved metadata stored on a `@KafkaHandler` method.
+ */
+export interface KafkaHandlerMetadata {
+  /**
+   * The topic this method consumes. Falls back to the topic declared on the
+   * owning `@KafkaConsumer` when omitted.
+   */
+  topic?: string;
+  options: KafkaHandlerOptions;
+}
+
 export interface KafkaModuleAsyncOptions
   extends Pick<ModuleMetadata, 'imports'> {
   /**
