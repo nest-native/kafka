@@ -8,6 +8,9 @@ import type {
   KafkaEachMessageHandler,
   KafkaProducerMessage,
   KafkaRecordMetadata,
+  KafkaSendBatch,
+  KafkaSendRecord,
+  KafkaTransaction,
 } from '@nest-native/kafka';
 
 interface Registration {
@@ -38,28 +41,32 @@ export class InMemoryBroker {
   }
 
   private createProducer(): KafkaDriverProducer {
+    const sendRecord = async (
+      record: KafkaSendRecord,
+    ): Promise<KafkaRecordMetadata[]> => {
+      await this.deliver(record.topic, record.messages);
+      return record.messages.map((_, index) => metadata(record.topic, index));
+    };
+
+    const sendBatch = async (
+      batch: KafkaSendBatch,
+    ): Promise<KafkaRecordMetadata[]> => {
+      const results: KafkaRecordMetadata[] = [];
+      for (const topicMessages of batch.topicMessages ?? []) {
+        await this.deliver(topicMessages.topic, topicMessages.messages);
+        topicMessages.messages.forEach((_, index) =>
+          results.push(metadata(topicMessages.topic, index)),
+        );
+      }
+      return results;
+    };
+
     return {
       connect: async () => {},
       disconnect: async () => {},
-      send: async record => {
-        await this.deliver(record.topic, record.messages);
-        return record.messages.map((_, index) =>
-          metadata(record.topic, index),
-        );
-      },
-      sendBatch: async batch => {
-        const results: KafkaRecordMetadata[] = [];
-        for (const topicMessages of batch.topicMessages ?? []) {
-          await this.deliver(topicMessages.topic, topicMessages.messages);
-          topicMessages.messages.forEach((_, index) =>
-            results.push(metadata(topicMessages.topic, index)),
-          );
-        }
-        return results;
-      },
-      transaction: async () => {
-        throw new Error('Transactions arrive in a later milestone.');
-      },
+      send: sendRecord,
+      sendBatch,
+      transaction: async () => createTransaction(sendRecord, sendBatch),
     };
   }
 
@@ -149,6 +156,40 @@ export class InMemoryBroker {
     );
     await Promise.all(deliveries);
   }
+}
+
+/**
+ * A transaction that buffers writes and flushes them on commit, discarding them
+ * on abort — the all-or-nothing delivery a real transaction guarantees. It
+ * shows the showcase's transactional producer (`OrdersService.placeOrder`)
+ * working end-to-end without a broker.
+ */
+function createTransaction(
+  sendRecord: (record: KafkaSendRecord) => Promise<KafkaRecordMetadata[]>,
+  sendBatch: (batch: KafkaSendBatch) => Promise<KafkaRecordMetadata[]>,
+): KafkaTransaction {
+  const pending: Array<() => Promise<unknown>> = [];
+
+  return {
+    send: async record => {
+      pending.push(() => sendRecord(record));
+      return record.messages.map((_, index) => metadata(record.topic, index));
+    },
+    sendBatch: async batch => {
+      pending.push(() => sendBatch(batch));
+      return [];
+    },
+    // The showcase's transaction is produce-only, so no offsets are committed.
+    sendOffsets: async () => {},
+    commit: async () => {
+      for (const flush of pending) {
+        await flush();
+      }
+    },
+    abort: async () => {
+      pending.length = 0;
+    },
+  };
 }
 
 function groupByPartition(

@@ -19,6 +19,7 @@ function createFakeProducer(): KafkaDriverProducer {
     transaction: async () => ({
       send: async () => [],
       sendBatch: async () => [],
+      sendOffsets: async () => {},
       commit: async () => {},
       abort: async () => {},
     }),

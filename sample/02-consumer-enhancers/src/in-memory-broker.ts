@@ -52,7 +52,7 @@ export class InMemoryBroker {
         return results;
       },
       transaction: async () => {
-        throw new Error('Transactions arrive in a later milestone.');
+        throw new Error('This sample does not use transactions; see sample 05.');
       },
     };
   }

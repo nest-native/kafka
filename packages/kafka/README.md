@@ -111,6 +111,61 @@ export class OrdersService {
 For low-level access to the raw Confluent producer, inject it directly with
 `@InjectKafkaProducer()`.
 
+### Transactions
+
+`transactional(work)` runs `work` inside one Kafka transaction: it commits when
+`work` resolves and aborts — delivering nothing — when it throws, re-raising the
+original error. Configure a `transactionalId` to make the shared producer
+transactional (Confluent's client then also enables idempotence):
+
+```ts
+KafkaModule.forRoot({
+  client: { brokers: ['localhost:9092'] },
+  producer: { transactionalId: 'orders-producer' }, // unique per producer instance
+});
+```
+
+```ts
+// Atomic across topics: both writes land, or neither does.
+await this.producer.transactional(async tx => {
+  await tx.send({ topic: 'orders.placed', messages: [{ value: id }] });
+  await tx.sendBatch({
+    topicMessages: [{ topic: 'orders.audit', messages: [{ value: `placed ${id}` }] }],
+  });
+});
+```
+
+For the consume-process-produce ("read-process-write") pattern, commit the
+consumer's offset inside the same transaction with `sendOffsets`, so the produced
+message and the consumed offset commit atomically — exactly-once across the
+consume → produce step:
+
+```ts
+await this.producer.transactional(async tx => {
+  await tx.send({ topic: 'receipts.issued', messages: [{ value: receipt }] });
+  await tx.sendOffsets({
+    consumer, // the live consumer object (see migration note below)
+    topics: [
+      {
+        topic: 'payments.captured',
+        // commit "next offset to read" = consumed offset + 1
+        partitions: [{ partition, offset: String(Number(offset) + 1) }],
+      },
+    ],
+  });
+});
+```
+
+> **Migration note (kafkajs → Confluent).** `sendOffsets` takes the live
+> `consumer` object in `@confluentinc/kafka-javascript`, not the
+> `consumerGroupId` string kafkajs used. The package's `KafkaTransactionOffsets`
+> type models the Confluent shape.
+
+If the abort itself fails while unwinding a failed `work`, the original error
+still surfaces with the abort failure attached as its `cause`, so neither error
+is lost. The package wraps only what the client provides — it does not add
+exactly-once helpers beyond Confluent's transactions.
+
 ### Consuming messages
 
 Mark a class with `@KafkaConsumer` and its methods with `@KafkaHandler`. The

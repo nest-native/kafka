@@ -20,6 +20,7 @@ interface ProducerCalls {
 interface TransactionCalls {
   send: KafkaSendRecord[];
   sendBatch: KafkaSendBatch[];
+  sendOffsets: unknown[];
   commit: number;
   abort: number;
 }
@@ -28,13 +29,14 @@ function metadata(topic: string): KafkaRecordMetadata[] {
   return [{ topicName: topic, partition: 0, errorCode: 0 }];
 }
 
-function createTransaction(): {
+function createTransaction(overrides: Partial<KafkaTransaction> = {}): {
   transaction: KafkaTransaction;
   calls: TransactionCalls;
 } {
   const calls: TransactionCalls = {
     send: [],
     sendBatch: [],
+    sendOffsets: [],
     commit: 0,
     abort: 0,
   };
@@ -48,12 +50,16 @@ function createTransaction(): {
       calls.sendBatch.push(batch);
       return [];
     },
+    async sendOffsets(offsets) {
+      calls.sendOffsets.push(offsets);
+    },
     async commit() {
       calls.commit += 1;
     },
     async abort() {
       calls.abort += 1;
     },
+    ...overrides,
   };
 
   return { transaction, calls };
@@ -180,6 +186,29 @@ describe('KafkaProducerService', () => {
     assert.equal(txCalls.send.length, 1);
   });
 
+  it('commits consumer offsets atomically inside a transaction', async () => {
+    const { transaction, calls: txCalls } = createTransaction();
+    ({ producer, calls } = createProducer(transaction));
+    service = new KafkaProducerService(producer);
+
+    const consumer = {} as never;
+    const offsets = {
+      consumer,
+      topics: [
+        { topic: 'orders', partitions: [{ partition: 0, offset: '11' }] },
+      ],
+    };
+
+    await service.transactional(async tx => {
+      await tx.send({ topic: 'audit', messages: [{ value: 'a' }] });
+      await tx.sendOffsets(offsets);
+    });
+
+    assert.equal(txCalls.commit, 1);
+    assert.equal(txCalls.abort, 0);
+    assert.deepEqual(txCalls.sendOffsets, [offsets]);
+  });
+
   it('aborts the transaction and rethrows when the work fails', async () => {
     const { transaction, calls: txCalls } = createTransaction();
     ({ producer, calls } = createProducer(transaction));
@@ -196,5 +225,73 @@ describe('KafkaProducerService', () => {
 
     assert.equal(txCalls.commit, 0);
     assert.equal(txCalls.abort, 1);
+  });
+
+  it('preserves the original error and attaches the abort failure as its cause', async () => {
+    const abortError = new Error('abort failed');
+    const { transaction } = createTransaction({
+      async abort() {
+        throw abortError;
+      },
+    });
+    ({ producer, calls } = createProducer(transaction));
+    service = new KafkaProducerService(producer);
+
+    const failure = new Error('handler exploded');
+
+    await assert.rejects(
+      service.transactional(() => {
+        throw failure;
+      }),
+      (error: unknown) => {
+        assert.equal(error, failure);
+        assert.equal((error as { cause?: unknown }).cause, abortError);
+        return true;
+      },
+    );
+  });
+
+  it('does not overwrite an existing cause when the abort also fails', async () => {
+    const { transaction } = createTransaction({
+      async abort() {
+        throw new Error('abort failed');
+      },
+    });
+    ({ producer, calls } = createProducer(transaction));
+    service = new KafkaProducerService(producer);
+
+    const existingCause = new Error('root');
+    const failure = new Error('handler exploded');
+    (failure as { cause?: unknown }).cause = existingCause;
+
+    await assert.rejects(
+      service.transactional(() => {
+        throw failure;
+      }),
+      (error: unknown) => {
+        assert.equal((error as { cause?: unknown }).cause, existingCause);
+        return true;
+      },
+    );
+  });
+
+  it('leaves a non-Error thrown value untouched when the abort fails', async () => {
+    const { transaction } = createTransaction({
+      async abort() {
+        throw new Error('abort failed');
+      },
+    });
+    ({ producer, calls } = createProducer(transaction));
+    service = new KafkaProducerService(producer);
+
+    await assert.rejects(
+      service.transactional(() => {
+        throw 'plain string failure';
+      }),
+      (error: unknown) => {
+        assert.equal(error, 'plain string failure');
+        return true;
+      },
+    );
   });
 });

@@ -62,7 +62,9 @@ function createInMemoryProducer(
       return results;
     },
     transaction: async () => {
-      throw new Error('Transactions arrive in a later milestone.');
+      // This basics sample sticks to send/sendBatch; the dedicated
+      // `05-transactions` sample exercises the transactional producer helper.
+      throw new Error('This sample does not use transactions; see sample 05.');
     },
   };
 }
