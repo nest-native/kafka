@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import Module from 'node:module';
 import { describe, it } from 'node:test';
 import { Injectable } from '@nestjs/common';
+import { DiscoveryModule } from '@nestjs/core';
 import { Test } from '@nestjs/testing';
 import {
   KAFKA_CLIENT_DRIVER,
@@ -13,6 +14,7 @@ import { KafkaModuleOptions } from '../interfaces';
 import {
   KafkaClientConfig,
   KafkaClientDriver,
+  KafkaDriverConsumer,
   KafkaDriverFactory,
   KafkaDriverProducer,
   KafkaProducerConfig,
@@ -49,6 +51,15 @@ function createFakeProducer(): KafkaDriverProducer {
   };
 }
 
+function createFakeConsumer(): KafkaDriverConsumer {
+  return {
+    connect: async () => {},
+    disconnect: async () => {},
+    subscribe: async () => {},
+    run: async () => {},
+  };
+}
+
 function createRecordingFactory(): {
   factory: KafkaDriverFactory;
   invocations: FactoryInvocation[];
@@ -65,6 +76,7 @@ function createRecordingFactory(): {
         producers.push(producer);
         return producer;
       },
+      createConsumer: createFakeConsumer,
     };
     return driver;
   };
@@ -79,6 +91,7 @@ function createRecordingFactory(): {
  */
 const noopFactory: KafkaDriverFactory = () => ({
   createProducer: createFakeProducer,
+  createConsumer: createFakeConsumer,
 });
 
 describe('KafkaModule', () => {
@@ -164,9 +177,22 @@ describe('KafkaModule', () => {
     });
 
     assert.equal(defaulted.global, true);
-    assert.deepEqual(defaulted.imports, []);
+    assert.equal(defaulted.imports?.includes(DiscoveryModule), true);
     assert.equal(explicitTrue.global, true);
     assert.equal(explicitFalse.global, false);
+  });
+
+  it('imports DiscoveryModule and appends user imports in forRoot/forRootAsync', () => {
+    class UserModule {}
+
+    assert.deepEqual(KafkaModule.forRoot().imports, [DiscoveryModule]);
+    assert.deepEqual(
+      KafkaModule.forRootAsync({
+        imports: [UserModule],
+        useFactory: () => ({}),
+      }).imports,
+      [DiscoveryModule, UserModule],
+    );
   });
 
   it('registers no providers when forFeature is called without handlers', () => {

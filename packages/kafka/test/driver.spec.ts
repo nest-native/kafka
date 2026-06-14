@@ -1,7 +1,11 @@
 import assert from 'node:assert/strict';
 import Module from 'node:module';
 import { afterEach, describe, it } from 'node:test';
-import { createConfluentDriver, KafkaDriverProducer } from '../driver';
+import {
+  createConfluentDriver,
+  KafkaDriverConsumer,
+  KafkaDriverProducer,
+} from '../driver';
 
 type ModuleLoad = (
   request: string,
@@ -41,7 +45,9 @@ describe('createConfluentDriver', () => {
   it('builds a driver that forwards client and producer config to the Confluent client', () => {
     const constructorConfigs: unknown[] = [];
     const producerConfigs: unknown[] = [];
+    const consumerConfigs: unknown[] = [];
     const fakeProducer = {} as KafkaDriverProducer;
+    const fakeConsumer = {} as KafkaDriverConsumer;
 
     class FakeKafka {
       constructor(config?: unknown) {
@@ -52,6 +58,11 @@ describe('createConfluentDriver', () => {
         producerConfigs.push(config);
         return fakeProducer;
       }
+
+      consumer(config?: unknown): KafkaDriverConsumer {
+        consumerConfigs.push(config);
+        return fakeConsumer;
+      }
     }
 
     stubConfluentModule({ KafkaJS: { Kafka: FakeKafka } });
@@ -61,13 +72,21 @@ describe('createConfluentDriver', () => {
       { allowAutoTopicCreation: false },
     );
     const created = driver.createProducer();
+    const consumerWithGroup = driver.createConsumer({ groupId: 'orders-svc' });
+    const consumerDefault = driver.createConsumer();
 
     assert.equal(created, fakeProducer);
+    assert.equal(consumerWithGroup, fakeConsumer);
+    assert.equal(consumerDefault, fakeConsumer);
     assert.deepEqual(constructorConfigs, [
       { kafkaJS: { brokers: ['localhost:9092'], clientId: 'orders' } },
     ]);
     assert.deepEqual(producerConfigs, [
       { kafkaJS: { allowAutoTopicCreation: false } },
+    ]);
+    assert.deepEqual(consumerConfigs, [
+      { kafkaJS: { groupId: 'orders-svc' } },
+      { kafkaJS: {} },
     ]);
   });
 
