@@ -1,0 +1,55 @@
+name: Feature request
+description: Propose a package, docs, or sample improvement.
+title: "feat: "
+labels:
+  - enhancement
+body:
+  - type: markdown
+    attributes:
+      value: |
+        This project prefers sample-first API design. If the request adds public package API, please explain the repeated application pain and why existing Nest or Confluent client primitives are not enough.
+  - type: textarea
+    id: use-case
+    attributes:
+      label: Use case
+      description: What are you trying to build, and where does the current package fall short?
+    validations:
+      required: true
+  - type: textarea
+    id: current-approach
+    attributes:
+      label: Current approach
+      description: Show how you solve this today with the Confluent client, Nest, or application code.
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed change
+      description: Describe the smallest package, docs, or sample change that would help.
+    validations:
+      required: true
+  - type: dropdown
+    id: kind
+    attributes:
+      label: Change type
+      options:
+        - documentation
+        - sample
+        - testing utility
+        - package API
+        - release or CI
+        - other
+    validations:
+      required: true
+  - type: checkboxes
+    id: boundaries
+    attributes:
+      label: Project boundaries
+      options:
+        - label: This keeps the Confluent client surface visible, not hidden behind a facade.
+          required: true
+        - label: This stays within Kafka producer/consumer integration and does not pull in Schema Registry, ksqlDB, Connect, or Streams.
+          required: true
+        - label: This fits normal Nest module, decorator, enhancer, and testing patterns.
+          required: true

@@ -1,0 +1,8 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Repository README
+    url: https://github.com/nest-native/kafka#readme
+    about: Read the project overview and status before opening a support issue.
+  - name: nest-native organization
+    url: https://github.com/nest-native
+    about: Explore the sibling nest-native packages.

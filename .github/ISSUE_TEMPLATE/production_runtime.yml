@@ -1,0 +1,116 @@
+name: Production/runtime issue
+description: Report a production-like problem with consumers, producers, rebalances, offsets, deployment, or dependency updates.
+title: "prod: "
+labels:
+  - bug
+  - production
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Use this template for issues that appear in production, staging, CI, or production-like environments.
+
+        Do not paste secrets, broker credentials, SSL/SASL material, API keys, production tokens, private certificates, customer data, or unredacted hostnames. Redact values before submitting.
+  - type: dropdown
+    id: production-area
+    attributes:
+      label: Production area
+      options:
+        - consumer lifecycle (@KafkaConsumer/@KafkaHandler)
+        - rebalance / offset commit behavior
+        - backpressure / per-topic concurrency
+        - graceful shutdown / draining
+        - producer service (send/sendBatch/transactional)
+        - guards/pipes/interceptors/filters interaction
+        - librdkafka binary install / platform matrix
+        - dependency update or supply-chain change
+        - release or package consumption
+        - other
+    validations:
+      required: true
+  - type: textarea
+    id: impact
+    attributes:
+      label: Impact
+      description: What failed, who is affected, and what workaround exists?
+      placeholder: "A rebalance left in-flight messages uncommitted, so the group reprocessed a batch."
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Minimal reproduction or failing flow
+      description: Link a reproduction repo or describe the smallest production-like flow that fails.
+    validations:
+      required: true
+  - type: input
+    id: package-version
+    attributes:
+      label: "@nest-native/kafka version"
+      placeholder: "0.0.0"
+    validations:
+      required: true
+  - type: input
+    id: nest-version
+    attributes:
+      label: NestJS version
+      placeholder: "11.x"
+    validations:
+      required: true
+  - type: input
+    id: confluent-version
+    attributes:
+      label: "@confluentinc/kafka-javascript version"
+      placeholder: "1.9.x"
+    validations:
+      required: true
+  - type: input
+    id: node-version
+    attributes:
+      label: Node.js version
+      placeholder: "20.x, 22.x, 24.x"
+    validations:
+      required: true
+  - type: input
+    id: platform
+    attributes:
+      label: OS / architecture
+      description: librdkafka is a native binary; note Alpine, Windows, or ARM64 specifically.
+      placeholder: "linux/glibc x64, alpine arm64, windows x64"
+    validations:
+      required: true
+  - type: textarea
+    id: module-setup
+    attributes:
+      label: KafkaModule setup
+      description: Paste the relevant forRoot/forRootAsync/forFeature shape with secrets redacted.
+      render: ts
+    validations:
+      required: true
+  - type: textarea
+    id: consumer-setup
+    attributes:
+      label: Consumer or producer setup
+      description: Mention the topic/pattern, batch vs single, per-topic concurrency, and whether the failure is on consume, produce, rebalance, or shutdown.
+  - type: textarea
+    id: dependency-change
+    attributes:
+      label: Recent dependency or lockfile change
+      description: Mention Dependabot PRs, manual upgrades, or lockfile churn if the problem started after a dependency change.
+  - type: textarea
+    id: logs
+    attributes:
+      label: Relevant logs
+      description: Paste stack traces or command output with secrets, tokens, hostnames, broker credentials, and API keys redacted.
+      render: text
+  - type: checkboxes
+    id: safety
+    attributes:
+      label: Safety checklist
+      options:
+        - label: I removed or redacted secrets, broker credentials, SSL/SASL material, API keys, tokens, hostnames, and private certificates.
+          required: true
+        - label: I did not include customer data or personally identifiable information.
+          required: true
+        - label: I included enough version, platform, and broker information for maintainers to reproduce the issue.
+          required: true

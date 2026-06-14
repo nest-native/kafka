@@ -1,0 +1,88 @@
+name: Bug report
+description: Report a reproducible problem in @nest-native/kafka.
+title: "bug: "
+labels:
+  - bug
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to report a bug. Please include enough detail for maintainers to reproduce it without guessing about your Nest, Kafka, broker, or consumer/producer setup.
+        Do not paste secrets, broker credentials, SSL/SASL material, API keys, production tokens, private certificates, customer data, or unredacted hostnames.
+  - type: textarea
+    id: problem
+    attributes:
+      label: What happened?
+      description: Describe the behavior you saw and what you expected instead.
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Reproduction
+      description: Link to a minimal repo or paste the smallest code snippet that demonstrates the issue.
+      placeholder: |
+        KafkaModule.forRoot({
+          clientId: 'demo',
+        });
+    validations:
+      required: true
+  - type: input
+    id: package-version
+    attributes:
+      label: "@nest-native/kafka version"
+      placeholder: "0.0.0"
+    validations:
+      required: true
+  - type: input
+    id: nest-version
+    attributes:
+      label: NestJS version
+      placeholder: "11.x"
+    validations:
+      required: true
+  - type: input
+    id: confluent-version
+    attributes:
+      label: "@confluentinc/kafka-javascript version"
+      placeholder: "1.9.x"
+    validations:
+      required: true
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - KafkaModule registration
+        - "@KafkaConsumer"
+        - "@KafkaHandler"
+        - parameter decorators (@KafkaMessage/@KafkaHeaders/@KafkaContext)
+        - producer service
+        - guards/pipes/interceptors/filters
+        - rebalance / offset commit
+        - error mapping
+        - samples or docs
+        - release or CI
+        - other
+    validations:
+      required: true
+  - type: textarea
+    id: consumer-setup
+    attributes:
+      label: Consumer or producer setup, if relevant
+      description: Mention the topic/pattern, whether the issue is on consume or produce, and whether batch or per-topic concurrency is configured.
+  - type: textarea
+    id: logs
+    attributes:
+      label: Relevant logs
+      description: Paste stack traces or command output. Redact secrets, tokens, hostnames, broker credentials, and API keys.
+      render: text
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Checklist
+      options:
+        - label: I removed or redacted secrets, broker credentials, and API keys.
+          required: true
+        - label: I checked the docs and samples for the same pattern.
+          required: true
