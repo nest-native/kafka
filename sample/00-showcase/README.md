@@ -1,7 +1,7 @@
 # Sample 00 — Showcase
 
 The full integration baseline for `@nest-native/kafka`. It grows with each
-milestone; today it demonstrates milestones 2 through 5.
+milestone; today it demonstrates milestones 2 through 6.
 
 What it shows:
 
@@ -24,9 +24,14 @@ What it shows:
   documented opt-out of the official transport's sequential per-topic processing
   (`nestjs/nest#12703`). `KafkaModule.forRoot({ maxInFlight })` caps in-flight
   work for backpressure.
+- **Transactional producer (milestone 6):** `OrdersService.placeOrder`
+  publishes through `KafkaProducerService.transactional`, so the order commits
+  atomically (and would abort, delivering nothing, if the callback threw). The
+  module configures the producer with a `transactionalId`. The dedicated
+  `05-transactions` sample isolates the helper, including the consume-process-
+  produce `sendOffsets` pattern.
 
-Milestones still to land here: the transactional producer (6) and the testing
-utilities + migration scenario (7).
+Milestones still to land here: the testing utilities + migration scenario (7).
 
 ## Run it
 

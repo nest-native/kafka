@@ -38,6 +38,16 @@ package release is useful for users.
 - Sample `04-batch-concurrency` demonstrating batch consume, per-topic
   concurrency, and rebalance-safe offset resolution; the showcase gains an
   `analytics` batch consumer.
+- Transactional producer helper: `KafkaTransaction` gains `sendOffsets` for the
+  consume-process-produce ("read-process-write") pattern, with the
+  `KafkaTransactionOffsets` / `KafkaTopicOffsets` / `KafkaPartitionOffset` types
+  modelling Confluent's shape (the live `consumer` object, not kafkajs's
+  `consumerGroupId` string). `KafkaProducerService.transactional` commits on
+  success and aborts on throw, and now preserves the original error (attaching a
+  failed abort as its `cause`) so neither error is lost. `KafkaProducerConfig`
+  documents `transactionalId`. Sample `05-transactions` isolates the helper
+  (atomic multi-topic write, abort-on-throw, and `sendOffsets`); the showcase's
+  `OrdersService.placeOrder` now publishes transactionally.
 
 ## 0.0.0 - 2026-06-13
 

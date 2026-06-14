@@ -19,6 +19,9 @@ Current samples:
 - `04-batch-concurrency` — batch consumption (`@KafkaHandler({ batch: true })`,
   `@KafkaBatch()`), per-topic concurrency (`nestjs/nest#12703`), and
   rebalance-safe offset resolution (`nestjs/nest#12355`).
+- `05-transactions` — the transactional producer helper
+  (`KafkaProducerService.transactional`): atomic multi-topic writes, abort on
+  throw, and the consume-process-produce `sendOffsets` pattern.
 
 ## Commands
 

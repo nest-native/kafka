@@ -30,6 +30,9 @@ class SharedModule {}
       clientId: 'sample-00-showcase',
       client: { brokers: resolveBrokers() },
       driverFactory: resolveDriverFactory(broker),
+      // A `transactionalId` makes the shared producer transactional so
+      // `OrdersService.placeOrder` can publish through the transactional helper.
+      producer: { transactionalId: 'sample-00-showcase-producer' },
       // Backpressure: cap how many messages/batches any one consumer processes
       // at once. A `@KafkaConsumer` or `@KafkaHandler` may raise or lower it.
       maxInFlight: 16,
