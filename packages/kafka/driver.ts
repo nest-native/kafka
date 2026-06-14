@@ -128,6 +128,48 @@ export type KafkaEachMessageHandler = (
 ) => Promise<void>;
 
 /**
+ * A batch of messages fetched from a single topic-partition, mirroring the
+ * KafkaJS-compatible `batch` object Confluent's client hands to `eachBatch`.
+ * Only the fields the transport relies on are modelled; advanced fields the
+ * client provides (`highWatermark`, `offsetLag`, …) pass through untouched.
+ */
+export interface KafkaConsumerBatch {
+  topic: string;
+  partition: number;
+  messages: KafkaConsumerMessage[];
+}
+
+/**
+ * The argument the driver passes to the `eachBatch` callback, mirroring the
+ * KafkaJS-compatible payload Confluent's client emits: the fetched
+ * {@link KafkaConsumerBatch} plus the per-message offset-resolution callback used
+ * to commit progress incrementally.
+ */
+export interface KafkaEachBatchPayload {
+  batch: KafkaConsumerBatch;
+  /**
+   * Mark one message in the batch as processed so its offset can be committed.
+   *
+   * Resolving offsets per message — rather than only at the end of the batch —
+   * is what makes batch consumption rebalance-safe (`nestjs/nest#12355`): a
+   * partition revoked mid-batch keeps the offsets already resolved, so the next
+   * owner resumes after the last processed message instead of replaying the
+   * whole batch or hanging.
+   */
+  resolveOffset: (offset: string) => void;
+}
+
+/**
+ * The per-batch callback a consumer runs when a handler opts into batch
+ * consumption. Returning resolves the batch (offsets up to the last resolved
+ * message commit); throwing surfaces the failure to the transport's error
+ * handling.
+ */
+export type KafkaEachBatchHandler = (
+  payload: KafkaEachBatchPayload,
+) => Promise<void>;
+
+/**
  * Subscription request forwarded to the consumer, mirroring the
  * KafkaJS-compatible `subscribe` options.
  */
@@ -138,10 +180,30 @@ export interface KafkaSubscription {
 
 /**
  * Runtime configuration for {@link KafkaDriverConsumer.run}, mirroring the
- * KafkaJS-compatible `run` options the package relies on.
+ * KafkaJS-compatible `run` options the package relies on. A consumer runs either
+ * `eachMessage` (the default, one message at a time) or `eachBatch` (when a
+ * handler opts into batch consumption); the two never run on the same consumer.
  */
 export interface KafkaConsumerRunConfig {
-  eachMessage: KafkaEachMessageHandler;
+  eachMessage?: KafkaEachMessageHandler;
+  eachBatch?: KafkaEachBatchHandler;
+
+  /**
+   * How many partitions the consumer processes concurrently. `1` (the default)
+   * keeps strict per-partition ordering; a higher value lets messages from
+   * different partitions run at the same time, addressing the sequential
+   * per-topic processing of the official transport (`nestjs/nest#12703`).
+   * Ordering within a single partition is always preserved.
+   */
+  partitionsConsumedConcurrently?: number;
+
+  /**
+   * When `true` (the default for `eachBatch`) the client commits the batch's
+   * last offset automatically once the callback returns. The transport disables
+   * it and resolves offsets per message instead so a rebalance mid-batch never
+   * loses or replays processed messages.
+   */
+  eachBatchAutoResolve?: boolean;
 }
 
 /**

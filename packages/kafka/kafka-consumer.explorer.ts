@@ -24,8 +24,8 @@ import {
 import {
   KafkaClientDriver,
   KafkaConsumerConfig,
+  KafkaConsumerRunConfig,
   KafkaDriverConsumer,
-  KafkaEachMessagePayload,
 } from './driver';
 import {
   KafkaHandlerContext,
@@ -33,18 +33,20 @@ import {
   KafkaHandlerInvocation,
 } from './kafka-context-creator';
 import { createKafkaEnhancerRuntime } from './kafka-enhancer-runtime.factory';
-import { KafkaContext, KafkaIncomingMessage } from './kafka-context';
+import { KafkaDispatcher } from './kafka-dispatcher';
 import {
   KafkaConsumerMetadata,
   KafkaHandlerMetadata,
   KafkaModuleOptions,
 } from './interfaces';
 import {
-  applyKafkaErrorBehavior,
   defaultKafkaErrorMapper,
   KafkaErrorMapper,
 } from './kafka-error-mapping';
 import { KAFKA_CLIENT_DRIVER, KAFKA_MODULE_OPTIONS } from './tokens';
+
+/** Default partitions-consumed-concurrently: ordered, one partition at a time. */
+const DEFAULT_CONCURRENCY = 1;
 
 /**
  * The slice of Nest's `InstanceWrapper` the explorer relies on, captured locally
@@ -60,8 +62,18 @@ interface InstanceWrapperLike {
 interface DiscoveredHandler {
   topic: string;
   groupId?: string;
+  batch: boolean;
+  concurrency: number;
+  maxInFlight: number;
   run: (invocation: KafkaHandlerInvocation) => Promise<unknown>;
 }
+
+/**
+ * Identifies the Kafka consumer a handler belongs to: its consumer group plus
+ * its consumption mode. Per-message and batch handlers never share a consumer
+ * because a Confluent consumer runs either `eachMessage` or `eachBatch`.
+ */
+type ConsumerKey = string;
 
 /**
  * Discovers `@KafkaConsumer` classes, wires their `@KafkaHandler` methods
@@ -70,10 +82,15 @@ interface DiscoveredHandler {
  *
  * It is the bridge between Nest's dependency-injection container and the Kafka
  * transport: discovery happens once at application bootstrap, handlers are
- * grouped by consumer group so partitions balance the way Confluent expects, and
- * every consumed message is dispatched through {@link KafkaContextCreator} so
- * guards, interceptors, pipes, and filters run before the handler — exactly as
- * `@nestjs/microservices` does for the official Kafka transport.
+ * grouped by consumer group (and consumption mode) so partitions balance the way
+ * Confluent expects, and every consumed message is dispatched through
+ * {@link KafkaContextCreator} so guards, interceptors, pipes, and filters run
+ * before the handler — exactly as `@nestjs/microservices` does for the official
+ * Kafka transport.
+ *
+ * Per-topic concurrency (`nestjs/nest#12703`) and backpressure (BRIEF §9) are
+ * resolved per handler and applied through the per-consumer
+ * {@link KafkaDispatcher}.
  *
  * @internal
  */
@@ -84,19 +101,8 @@ export class KafkaConsumerExplorer
   private readonly logger = new Logger(KafkaConsumerExplorer.name);
   private readonly contextCreator: KafkaContextCreator;
   private readonly consumers: KafkaDriverConsumer[] = [];
+  private readonly dispatchers: KafkaDispatcher[] = [];
   private readonly errorMapper: KafkaErrorMapper;
-
-  /**
-   * Messages currently being handled. Graceful shutdown drains this set before
-   * disconnecting so an in-flight handler is never interrupted mid-message.
-   */
-  private readonly inFlight = new Set<Promise<void>>();
-
-  /**
-   * Once shutdown begins the explorer stops accepting newly delivered messages
-   * (§ graceful shutdown: stop new claims → drain in-flight → disconnect).
-   */
-  private shuttingDown = false;
 
   constructor(
     private readonly metadataScanner: MetadataScanner,
@@ -128,23 +134,14 @@ export class KafkaConsumerExplorer
 
   /**
    * Graceful shutdown, in the order the constitution requires: stop accepting
-   * newly delivered messages, drain the messages already in flight so no handler
-   * is interrupted mid-message, then disconnect every consumer.
+   * newly delivered records and drain the work already in flight so no handler is
+   * interrupted mid-message, then disconnect every consumer.
    */
   async onApplicationShutdown(): Promise<void> {
-    this.shuttingDown = true;
-    await this.drainInFlight();
+    await Promise.all(this.dispatchers.map(dispatcher => dispatcher.drain()));
     await Promise.all(this.consumers.map(consumer => consumer.disconnect()));
     this.consumers.length = 0;
-  }
-
-  /**
-   * Wait for every in-flight message to settle. A draining handler may itself
-   * dispatch nothing new (new claims are already refused), so a single pass over
-   * the snapshot is enough.
-   */
-  private async drainInFlight(): Promise<void> {
-    await Promise.allSettled([...this.inFlight]);
+    this.dispatchers.length = 0;
   }
 
   private discoverHandlers(): DiscoveredHandler[] {
@@ -221,6 +218,19 @@ export class KafkaConsumerExplorer
       topic,
       groupId:
         handlerMeta.options.groupId ?? params.consumerMeta.options.groupId,
+      batch: handlerMeta.options.batch ?? false,
+      concurrency: this.resolve(
+        'concurrency',
+        handlerMeta,
+        params.consumerMeta,
+        DEFAULT_CONCURRENCY,
+      ),
+      maxInFlight: this.resolve(
+        'maxInFlight',
+        handlerMeta,
+        params.consumerMeta,
+        0,
+      ),
       run: this.createRunner({
         wrapper: params.wrapper,
         metatype: params.metatype,
@@ -233,6 +243,25 @@ export class KafkaConsumerExplorer
 
     this.logger.log(
       `Mapped "${topic}" to ${params.metatype.name}.${params.methodName}`,
+    );
+  }
+
+  /**
+   * Resolve a numeric concurrency/backpressure option handler → consumer →
+   * module default, so a single handler can opt out of (or into) the wider
+   * setting.
+   */
+  private resolve(
+    key: 'concurrency' | 'maxInFlight',
+    handlerMeta: KafkaHandlerMetadata,
+    consumerMeta: KafkaConsumerMetadata,
+    fallback: number,
+  ): number {
+    return (
+      handlerMeta.options[key] ??
+      consumerMeta.options[key] ??
+      this.options[key] ??
+      fallback
     );
   }
 
@@ -287,45 +316,80 @@ export class KafkaConsumerExplorer
   }
 
   private async startConsumers(handlers: DiscoveredHandler[]): Promise<void> {
-    const groups = this.groupByConsumerGroup(handlers);
-    for (const [groupId, groupHandlers] of groups) {
-      await this.startConsumer(groupId, groupHandlers);
+    const groups = this.groupByConsumer(handlers);
+    for (const groupHandlers of groups.values()) {
+      await this.startConsumer(groupHandlers);
     }
   }
 
-  private groupByConsumerGroup(
+  /**
+   * Group handlers by `(groupId, consumption mode)`. Per-message and batch
+   * handlers in the same group still land on separate consumers because a single
+   * Confluent consumer runs either `eachMessage` or `eachBatch`.
+   */
+  private groupByConsumer(
     handlers: DiscoveredHandler[],
-  ): Map<string | undefined, DiscoveredHandler[]> {
-    const groups = new Map<string | undefined, DiscoveredHandler[]>();
+  ): Map<ConsumerKey, DiscoveredHandler[]> {
+    const groups = new Map<ConsumerKey, DiscoveredHandler[]>();
     for (const handler of handlers) {
-      const existing = groups.get(handler.groupId);
+      const key: ConsumerKey = `${handler.groupId ?? ''}|${handler.batch}`;
+      const existing = groups.get(key);
       if (existing) {
         existing.push(handler);
       } else {
-        groups.set(handler.groupId, [handler]);
+        groups.set(key, [handler]);
       }
     }
     return groups;
   }
 
-  private async startConsumer(
-    groupId: string | undefined,
-    handlers: DiscoveredHandler[],
-  ): Promise<void> {
+  private async startConsumer(handlers: DiscoveredHandler[]): Promise<void> {
     const routes = this.buildRoutes(handlers);
+    const [first] = handlers;
     const config: KafkaConsumerConfig = {};
-    if (groupId !== undefined) {
-      config.groupId = groupId;
+    if (first.groupId !== undefined) {
+      config.groupId = first.groupId;
     }
 
     const consumer = this.driver.createConsumer(config);
     this.consumers.push(consumer);
 
+    const maxInFlight = Math.max(...handlers.map(handler => handler.maxInFlight));
+    const dispatcher = new KafkaDispatcher(routes, this.errorMapper, maxInFlight);
+    this.dispatchers.push(dispatcher);
+
     await consumer.connect();
     await consumer.subscribe({ topics: [...routes.keys()] });
-    await consumer.run({
-      eachMessage: payload => this.dispatch(routes, payload),
-    });
+    await consumer.run(this.runConfig(first, dispatcher, handlers));
+  }
+
+  /**
+   * Build the `run` config for a consumer: `eachBatch` for batch handlers,
+   * `eachMessage` otherwise, plus the partition concurrency
+   * (`partitionsConsumedConcurrently`, the documented opt-out of sequential
+   * per-topic processing — `nestjs/nest#12703`).
+   */
+  private runConfig(
+    first: DiscoveredHandler,
+    dispatcher: KafkaDispatcher,
+    handlers: DiscoveredHandler[],
+  ): KafkaConsumerRunConfig {
+    const partitionsConsumedConcurrently = Math.max(
+      ...handlers.map(handler => handler.concurrency),
+    );
+    if (first.batch) {
+      return {
+        partitionsConsumedConcurrently,
+        // Offsets resolve per message inside the dispatcher, so disable the
+        // client's all-or-nothing auto-resolve for rebalance safety.
+        eachBatchAutoResolve: false,
+        eachBatch: payload => dispatcher.eachBatch(payload),
+      };
+    }
+    return {
+      partitionsConsumedConcurrently,
+      eachMessage: payload => dispatcher.eachMessage(payload),
+    };
   }
 
   private buildRoutes(
@@ -341,84 +405,6 @@ export class KafkaConsumerExplorer
       }
     }
     return routes;
-  }
-
-  private dispatch(
-    routes: Map<string, DiscoveredHandler[]>,
-    payload: KafkaEachMessagePayload,
-  ): Promise<void> {
-    // Stop accepting new claims once shutdown has begun: a message delivered
-    // during drain is ignored so its offset stays uncommitted and the broker
-    // redelivers it to the next instance instead of being dropped here.
-    if (this.shuttingDown) {
-      return Promise.resolve();
-    }
-
-    const matched = routes.get(payload.topic);
-    if (!matched) {
-      return Promise.resolve();
-    }
-
-    const work = this.runHandlers(matched, payload);
-    this.track(work);
-    return work;
-  }
-
-  /**
-   * Track an in-flight message so graceful shutdown can drain it. The promise is
-   * removed once it settles, whether it resolved or rejected.
-   */
-  private track(work: Promise<void>): void {
-    this.inFlight.add(work);
-    const forget = (): void => {
-      this.inFlight.delete(work);
-    };
-    work.then(forget, forget);
-  }
-
-  private async runHandlers(
-    matched: DiscoveredHandler[],
-    payload: KafkaEachMessagePayload,
-  ): Promise<void> {
-    const invocation = this.toInvocation(payload);
-    for (const handler of matched) {
-      try {
-        await handler.run(invocation);
-      } catch (error) {
-        // The handler's `@UseFilters` pipeline already ran; an error here means
-        // no filter handled it. Map it to commit-or-retry instead of letting it
-        // swallow silently (`nestjs/nest#9679`) or crash the consumer.
-        applyKafkaErrorBehavior(error, invocation.context, this.errorMapper);
-      }
-    }
-  }
-
-  private toInvocation(payload: KafkaEachMessagePayload): KafkaHandlerInvocation {
-    const message: KafkaIncomingMessage = payload.message;
-    const context = new KafkaContext(
-      payload.topic,
-      payload.partition,
-      message,
-    );
-    return { payload: this.deserialize(message.value), context };
-  }
-
-  /**
-   * Decode the message value into a handler payload. Buffers and strings are
-   * JSON-parsed when they hold JSON, mirroring the default deserializer of the
-   * official Kafka transport; non-JSON values pass through as the decoded
-   * string. `null` (a tombstone) passes through unchanged.
-   */
-  private deserialize(value: KafkaIncomingMessage['value']): unknown {
-    if (value === null) {
-      return null;
-    }
-    const text = Buffer.isBuffer(value) ? value.toString('utf8') : value;
-    try {
-      return JSON.parse(text);
-    } catch {
-      return text;
-    }
   }
 
   private missingTopicError(className: string, methodName: string): Error {

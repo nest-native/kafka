@@ -63,6 +63,48 @@ export interface KafkaModuleOptions {
    * it in a filter.
    */
   errorMapper?: KafkaErrorMapper;
+
+  /**
+   * Default partition concurrency for every consumer the module starts, unless a
+   * `@KafkaConsumer` or `@KafkaHandler` overrides it. `1` (the default) keeps
+   * strict per-partition ordering; raising it lets partitions process
+   * concurrently, addressing the official transport's sequential per-topic
+   * processing (`nestjs/nest#12703`). See {@link KafkaConcurrencyOptions}.
+   *
+   * @default 1
+   */
+  concurrency?: number;
+
+  /**
+   * Default backpressure cap — the maximum number of messages any one consumer
+   * processes at once — unless a `@KafkaConsumer` or `@KafkaHandler` overrides
+   * it. Caps in-flight work so a fast broker cannot overwhelm slow handlers
+   * (BRIEF §9 backpressure). `0` or a negative value disables the cap.
+   *
+   * @default 0 (uncapped)
+   */
+  maxInFlight?: number;
+}
+
+/**
+ * The concurrency and backpressure controls a `@KafkaConsumer` or
+ * `@KafkaHandler` may set. They are resolved handler → consumer → module so a
+ * single handler can opt out of (or into) the module-wide default.
+ */
+export interface KafkaConcurrencyOptions {
+  /**
+   * How many partitions this consumer processes concurrently. `1` keeps strict
+   * per-partition ordering; a higher value processes partitions concurrently
+   * (the documented opt-out of the sequential per-topic processing in
+   * `nestjs/nest#12703`). Ordering within a partition is always preserved.
+   */
+  concurrency?: number;
+
+  /**
+   * The maximum number of messages this consumer processes at once. Caps
+   * in-flight work for backpressure; `0` or a negative value disables the cap.
+   */
+  maxInFlight?: number;
 }
 
 /**
@@ -76,7 +118,7 @@ export interface KafkaModuleOptions {
  * across instances; leaving it unset lets each application choose its own group
  * through {@link KafkaModuleOptions} or the broker default.
  */
-export interface KafkaConsumerOptions {
+export interface KafkaConsumerOptions extends KafkaConcurrencyOptions {
   /**
    * The Kafka consumer group this consumer joins. When omitted the handler runs
    * under the group resolved by the driver.
@@ -100,12 +142,26 @@ export interface KafkaConsumerMetadata {
 /**
  * Options accepted by {@link KafkaHandler}.
  */
-export interface KafkaHandlerOptions {
+export interface KafkaHandlerOptions extends KafkaConcurrencyOptions {
   /**
    * Override the consumer group for this single handler. Falls back to the
    * group declared on the owning `@KafkaConsumer`, then to the driver default.
    */
   groupId?: string;
+
+  /**
+   * Consume messages in batches instead of one at a time. A batch handler is
+   * invoked once per fetched topic-partition batch and receives the array of
+   * deserialized payloads (via `@KafkaMessage()`) or the raw
+   * {@link KafkaConsumerBatch} (via `@KafkaBatch()`). Offsets resolve per message
+   * so a rebalance mid-batch stays safe (`nestjs/nest#12355`).
+   *
+   * A batch handler runs on its own consumer: per-message and batch handlers are
+   * never mixed on a single Kafka consumer instance.
+   *
+   * @default false
+   */
+  batch?: boolean;
 }
 
 /**
