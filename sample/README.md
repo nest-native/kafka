@@ -7,15 +7,18 @@ The sample tree follows the same shape as the main quality strategy:
 
 Current samples:
 
-- `00-showcase` — producer + consumer wired together across two feature modules,
-  the full enhancer pipeline, request-scoped DI, parameter decorators, and a
-  chained consumer.
+- `00-showcase` — producer + consumer wired together across three feature
+  modules, the full enhancer pipeline, request-scoped DI, parameter decorators,
+  a chained consumer, and a batch consumer with per-topic concurrency.
 - `01-producer-basics` — `KafkaModule.forRoot`, the producer service, and a
   logging handler.
 - `02-consumer-enhancers` — `@KafkaConsumer` / `@KafkaHandler` with guards,
   interceptors, pipes, and filters.
 - `03-headers-context-errors` — the `@KafkaMessage` / `@KafkaHeaders` /
   `@KafkaCtx` parameter decorators, error mapping, and graceful shutdown.
+- `04-batch-concurrency` — batch consumption (`@KafkaHandler({ batch: true })`,
+  `@KafkaBatch()`), per-topic concurrency (`nestjs/nest#12703`), and
+  rebalance-safe offset resolution (`nestjs/nest#12355`).
 
 ## Commands
 

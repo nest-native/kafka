@@ -50,6 +50,21 @@ async function smoke(): Promise<void> {
     true,
   );
 
+  // Batch consume + per-topic concurrency (milestone 5): each handled order
+  // emits a window of two revenue events on a tenant-keyed partition, and the
+  // batch analytics consumer aggregates each window as one batch. Two handled
+  // orders → two batches, each holding two events.
+  assert.equal(log.batches.length, 2, 'one batch invocation per emitted window');
+  assert.deepEqual(
+    log.batches.map(batch => batch.count),
+    [2, 2],
+  );
+  // acme → partition 0, globex → partition 1: both partitions were processed.
+  assert.deepEqual(
+    log.batches.map(batch => batch.partition).sort(),
+    [0, 1],
+  );
+
   await app.close();
 
   console.log('Showcase smoke test passed.');

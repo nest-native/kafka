@@ -3,6 +3,7 @@ import { KafkaModule } from '@nest-native/kafka';
 import { MessageLog } from './common/message-log.service';
 import { InMemoryBroker } from './in-memory-broker';
 import { resolveBrokers, resolveDriverFactory } from './kafka-driver';
+import { AnalyticsModule } from './analytics/analytics.module';
 import { NotificationsModule } from './notifications/notifications.module';
 import { OrdersModule } from './orders/orders.module';
 
@@ -29,9 +30,13 @@ class SharedModule {}
       clientId: 'sample-00-showcase',
       client: { brokers: resolveBrokers() },
       driverFactory: resolveDriverFactory(broker),
+      // Backpressure: cap how many messages/batches any one consumer processes
+      // at once. A `@KafkaConsumer` or `@KafkaHandler` may raise or lower it.
+      maxInFlight: 16,
     }),
     OrdersModule,
     NotificationsModule,
+    AnalyticsModule,
   ],
 })
 export class AppModule {}

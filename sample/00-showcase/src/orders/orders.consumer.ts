@@ -8,6 +8,7 @@ import {
 } from '@nestjs/common';
 import { Injectable } from '@nestjs/common';
 import { KafkaConsumer, KafkaHandler, KafkaProducerService } from '@nest-native/kafka';
+import { ANALYTICS_TOPIC } from '../analytics/analytics.consumer';
 import {
   OrderErrorFilter,
   OrderValidationPipe,
@@ -64,6 +65,30 @@ export class OrdersConsumer {
           value: JSON.stringify({
             orderId: order.id,
             message: `Order ${order.id} confirmed`,
+          }),
+        },
+      ],
+    });
+
+    // Emit a small window of revenue events the batch analytics consumer
+    // aggregates. Partitioning by tenant keeps a tenant's events on one
+    // partition (ordered there) while different tenants land on different
+    // partitions, which the analytics consumer processes concurrently.
+    const partition = order.tenant === 'acme' ? 0 : 1;
+    await this.producer.send({
+      topic: ANALYTICS_TOPIC,
+      messages: [
+        {
+          key: order.id,
+          partition,
+          value: JSON.stringify({ orderId: order.id, amount: order.amount }),
+        },
+        {
+          key: `${order.id}-tax`,
+          partition,
+          value: JSON.stringify({
+            orderId: order.id,
+            amount: Math.round(order.amount * 0.1),
           }),
         },
       ],

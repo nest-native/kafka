@@ -1,12 +1,20 @@
 import type {
   KafkaClientDriver,
   KafkaConsumerConfig,
+  KafkaConsumerMessage,
   KafkaDriverConsumer,
   KafkaDriverProducer,
+  KafkaEachBatchHandler,
   KafkaEachMessageHandler,
   KafkaProducerMessage,
   KafkaRecordMetadata,
 } from '@nest-native/kafka';
+
+interface Registration {
+  topics: Set<string>;
+  eachMessage?: KafkaEachMessageHandler;
+  eachBatch?: KafkaEachBatchHandler;
+}
 
 /**
  * A tiny in-memory broker that loops produced messages straight to the
@@ -14,14 +22,12 @@ import type {
  *
  * It lets the consumer samples — and their smoke tests — run the full
  * `@KafkaConsumer` / `@KafkaHandler` pipeline (guards, interceptors, pipes,
- * filters) without a real Kafka broker or the native `librdkafka` install. The
- * real Confluent driver is only used when `KAFKA_BROKERS` is set.
+ * filters) without a real Kafka broker or the native `librdkafka` install, in
+ * both per-message and batch (`eachBatch`) modes. The real Confluent driver is
+ * only used when `KAFKA_BROKERS` is set.
  */
 export class InMemoryBroker {
-  private readonly consumers: {
-    topics: Set<string>;
-    eachMessage?: KafkaEachMessageHandler;
-  }[] = [];
+  private readonly consumers: Registration[] = [];
 
   createDriver(): KafkaClientDriver {
     return {
@@ -58,10 +64,7 @@ export class InMemoryBroker {
   }
 
   private createConsumer(_config?: KafkaConsumerConfig): KafkaDriverConsumer {
-    const registration: {
-      topics: Set<string>;
-      eachMessage?: KafkaEachMessageHandler;
-    } = { topics: new Set() };
+    const registration: Registration = { topics: new Set() };
     this.consumers.push(registration);
 
     return {
@@ -69,6 +72,7 @@ export class InMemoryBroker {
       disconnect: async () => {
         registration.topics.clear();
         registration.eachMessage = undefined;
+        registration.eachBatch = undefined;
       },
       subscribe: async subscription => {
         for (const topic of subscription.topics) {
@@ -77,6 +81,7 @@ export class InMemoryBroker {
       },
       run: async config => {
         registration.eachMessage = config.eachMessage;
+        registration.eachBatch = config.eachBatch;
       },
     };
   }
@@ -86,30 +91,89 @@ export class InMemoryBroker {
     messages: KafkaProducerMessage[],
   ): Promise<void> {
     for (const consumer of this.consumers) {
-      if (!consumer.eachMessage || !consumer.topics.has(topic)) {
+      if (!consumer.topics.has(topic)) {
         continue;
       }
-      for (let partition = 0; partition < messages.length; partition += 1) {
-        // Producers and consumers are decoupled in Kafka: a handler that throws
-        // (for example after a guard denies the message and no filter handles
-        // the exception) must never fail the producer's send. The loopback keeps
-        // that contract by isolating each delivery.
-        try {
-          await consumer.eachMessage({
-            topic,
-            partition,
-            message: {
-              key: messages[partition].key ?? null,
-              value: messages[partition].value,
-              headers: messages[partition].headers,
-            },
-          });
-        } catch {
-          // Swallowed: milestone 4 introduces explicit error mapping and retries.
-        }
+      await this.deliverToConsumer(consumer, topic, messages);
+    }
+  }
+
+  private async deliverToConsumer(
+    consumer: Registration,
+    topic: string,
+    messages: KafkaProducerMessage[],
+  ): Promise<void> {
+    if (consumer.eachBatch) {
+      await this.deliverBatch(consumer, topic, messages);
+      return;
+    }
+    await this.deliverEach(consumer, topic, messages);
+  }
+
+  private async deliverEach(
+    consumer: Registration,
+    topic: string,
+    messages: KafkaProducerMessage[],
+  ): Promise<void> {
+    for (let partition = 0; partition < messages.length; partition += 1) {
+      // Producers and consumers are decoupled in Kafka: a handler that throws
+      // (for example after a guard denies the message and no filter handles the
+      // exception) must never fail the producer's send, so each delivery is
+      // isolated.
+      try {
+        await consumer.eachMessage?.({
+          topic,
+          partition,
+          message: toConsumed(messages[partition], partition),
+        });
+      } catch {
+        // Swallowed: the transport's own error mapping decides commit-vs-retry.
       }
     }
   }
+
+  private async deliverBatch(
+    consumer: Registration,
+    topic: string,
+    messages: KafkaProducerMessage[],
+  ): Promise<void> {
+    const byPartition = groupByPartition(messages);
+    const deliveries = [...byPartition].map(([partition, partitionMessages]) =>
+      consumer
+        .eachBatch?.({
+          batch: { topic, partition, messages: partitionMessages },
+          resolveOffset: () => {},
+        })
+        // Isolate each partition's batch the same way as per-message delivery.
+        .catch(() => {}),
+    );
+    await Promise.all(deliveries);
+  }
+}
+
+function groupByPartition(
+  messages: KafkaProducerMessage[],
+): Map<number, KafkaConsumerMessage[]> {
+  const byPartition = new Map<number, KafkaConsumerMessage[]>();
+  for (const message of messages) {
+    const partition = message.partition ?? 0;
+    const existing = byPartition.get(partition) ?? [];
+    existing.push(toConsumed(message, existing.length));
+    byPartition.set(partition, existing);
+  }
+  return byPartition;
+}
+
+function toConsumed(
+  message: KafkaProducerMessage,
+  offset: number,
+): KafkaConsumerMessage {
+  return {
+    key: message.key ?? null,
+    value: message.value,
+    headers: message.headers,
+    offset: String(offset),
+  };
 }
 
 function metadata(topic: string, partition: number): KafkaRecordMetadata {

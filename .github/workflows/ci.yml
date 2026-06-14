@@ -261,6 +261,7 @@ jobs:
           | `01-producer-basics` | In-memory loopback driver; no broker required |
           | `02-consumer-enhancers` | In-memory loopback broker; no broker required |
           | `03-headers-context-errors` | In-memory loopback broker; no broker required |
+          | `04-batch-concurrency` | In-memory loopback broker; no broker required |
 
           Set `KAFKA_BROKERS` to run the same sample against a real Kafka cluster
           through Confluent's client. Broker credentials are never printed in this
