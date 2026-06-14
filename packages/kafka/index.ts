@@ -6,4 +6,6 @@ export * from './kafka-producer.service';
 export * from './inject-kafka-producer.decorator';
 export * from './kafka-consumer.decorator';
 export * from './kafka-handler.decorator';
+export * from './kafka-params.decorators';
 export * from './kafka-context';
+export * from './kafka-error-mapping';

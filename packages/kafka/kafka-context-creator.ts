@@ -5,6 +5,10 @@ import { ExecutionContextHost } from '@nestjs/core/helpers/execution-context-hos
 import { STATIC_CONTEXT } from '@nestjs/core/injector/constants';
 import { isObservable, lastValueFrom } from 'rxjs';
 import { KafkaContext } from './kafka-context';
+import {
+  KafkaParamsPipes,
+  KafkaParamsResolver,
+} from './kafka-params.resolver';
 
 /**
  * The Kafka transport runs handlers under Nest's `'rpc'` execution-context type,
@@ -66,6 +70,12 @@ interface KafkaPipesContextCreatorLike {
     contextId: KafkaContextId,
     inquirerId?: string,
   ): PipeTransform[];
+  createConcreteContext(
+    metadata: unknown[],
+    contextId?: KafkaContextId,
+    inquirerId?: string,
+  ): PipeTransform[];
+  setModuleContext(moduleKey: string): void;
 }
 
 interface KafkaPipesConsumerLike {
@@ -110,6 +120,11 @@ export interface KafkaEnhancerRuntime {
  */
 export interface KafkaHandlerContext {
   callback: KafkaCallback;
+  /**
+   * The consumer class the handler lives on. Used to reflect the
+   * parameter-decorator metadata once per handler.
+   */
+  metatype: Controller['constructor'];
   methodName: string;
   moduleKey: string;
   paramTypes: unknown[];
@@ -146,6 +161,10 @@ export class KafkaContextCreator {
   create(
     handler: KafkaHandlerContext,
   ): (invocation: KafkaHandlerInvocation) => Promise<unknown> {
+    // Parameter-decorator metadata is static on the class, so reflect it once
+    // when the handler is wired rather than per consumed message.
+    const paramsResolver = this.createParamsResolver(handler);
+
     return async (invocation: KafkaHandlerInvocation) => {
       const contextId = handler.resolveContextId();
       const instance = await handler.resolveInstance(contextId);
@@ -167,13 +186,38 @@ export class KafkaContextCreator {
 
       try {
         return await this.run(handler, instance, callback, contextId, {
-          contextArgs,
-          payload: invocation.payload,
+          executionContext,
+          paramsResolver,
         });
       } catch (error) {
         return this.handleException(error, exceptionHandler, executionContext);
       }
     };
+  }
+
+  private createParamsResolver(
+    handler: KafkaHandlerContext,
+  ): KafkaParamsResolver {
+    const pipesRuntime: KafkaParamsPipes = {
+      createConcrete: pipes =>
+        this.runtime.pipesContextCreator.createConcreteContext(pipes),
+      apply: (value, index, metatype, pipes) =>
+        this.runtime.pipesConsumer.apply(
+          value,
+          {
+            type: RouteParamtypes.BODY as unknown,
+            metatype,
+            data: undefined,
+          },
+          pipes,
+        ),
+    };
+    return new KafkaParamsResolver(
+      handler.metatype,
+      handler.methodName,
+      handler.paramTypes,
+      pipesRuntime,
+    );
   }
 
   private resolveCallback(
@@ -205,8 +249,12 @@ export class KafkaContextCreator {
     instance: Controller,
     callback: KafkaCallback,
     contextId: KafkaContextId,
-    state: { contextArgs: unknown[]; payload: unknown },
+    state: {
+      executionContext: ExecutionContextHost;
+      paramsResolver: KafkaParamsResolver;
+    },
   ): Promise<unknown> {
+    const contextArgs = state.executionContext.getArgs() as unknown[];
     const guards = this.runtime.guardsContextCreator.create(
       instance,
       callback,
@@ -214,7 +262,7 @@ export class KafkaContextCreator {
       contextId,
       handler.inquirerId,
     );
-    await this.activateGuards(guards, state.contextArgs, instance, callback);
+    await this.activateGuards(guards, contextArgs, instance, callback);
 
     const interceptors = this.runtime.interceptorsContextCreator.create(
       instance,
@@ -230,21 +278,18 @@ export class KafkaContextCreator {
       contextId,
       handler.inquirerId,
     );
+    // Param-level pipes resolve against the owning module, mirroring how
+    // `@nestjs/microservices`'s RpcContextCreator scopes custom-param pipes.
+    this.runtime.pipesContextCreator.setModuleContext(handler.moduleKey);
 
-    const invoke = this.createInvoker(
-      handler,
-      instance,
-      callback,
-      pipes,
-      state.contextArgs,
-    );
+    const invoke = this.createInvoker(handler, instance, callback, pipes, state);
 
     const result =
       interceptors.length === 0
         ? await invoke()
         : await this.runtime.interceptorsConsumer.intercept(
             interceptors,
-            state.contextArgs,
+            contextArgs,
             instance,
             callback,
             invoke,
@@ -280,16 +325,58 @@ export class KafkaContextCreator {
     instance: Controller,
     callback: KafkaCallback,
     pipes: PipeTransform[],
-    contextArgs: unknown[],
+    state: {
+      executionContext: ExecutionContextHost;
+      paramsResolver: KafkaParamsResolver;
+    },
+  ): () => Promise<unknown> {
+    if (state.paramsResolver.hasParams()) {
+      return this.createParamInvoker(handler, instance, callback, pipes, state);
+    }
+    return this.createPositionalInvoker(handler, instance, callback, pipes, state);
+  }
+
+  /**
+   * Invoke a handler that declares parameter decorators. The args array is built
+   * entirely from the `@KafkaMessage()` / `@KafkaHeaders()` / `@KafkaCtx()`
+   * factories and their param pipes; method-level pipes (`@UsePipes`) then run
+   * over the resolved payload argument so both pipe tiers apply.
+   */
+  private createParamInvoker(
+    handler: KafkaHandlerContext,
+    instance: Controller,
+    callback: KafkaCallback,
+    pipes: PipeTransform[],
+    state: {
+      executionContext: ExecutionContextHost;
+      paramsResolver: KafkaParamsResolver;
+    },
   ): () => Promise<unknown> {
     return async () => {
-      const args = [...contextArgs];
+      const args = await state.paramsResolver.resolve(state.executionContext);
       if (pipes.length > 0) {
-        args[0] = await this.applyPayloadPipes(
-          args[0],
-          pipes,
-          handler.paramTypes,
-        );
+        args[0] = await this.applyPayloadPipes(args[0], pipes, handler.paramTypes);
+      }
+      return callback.apply(instance, args);
+    };
+  }
+
+  /**
+   * Invoke a handler that takes the positional `(payload, context)` arguments —
+   * the convention for handlers written without parameter decorators. Method
+   * pipes run over the payload, exactly as before parameter decorators existed.
+   */
+  private createPositionalInvoker(
+    handler: KafkaHandlerContext,
+    instance: Controller,
+    callback: KafkaCallback,
+    pipes: PipeTransform[],
+    state: { executionContext: ExecutionContextHost },
+  ): () => Promise<unknown> {
+    return async () => {
+      const args = [...(state.executionContext.getArgs() as unknown[])];
+      if (pipes.length > 0) {
+        args[0] = await this.applyPayloadPipes(args[0], pipes, handler.paramTypes);
       }
       return callback.apply(instance, args);
     };
