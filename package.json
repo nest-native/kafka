@@ -5,7 +5,8 @@
   "description": "Community standalone monorepo for @nest-native/kafka",
   "license": "MIT",
   "workspaces": [
-    "packages/*"
+    "packages/*",
+    "sample/*"
   ],
   "scripts": {
     "build": "npm run build --workspaces --if-present",
@@ -17,10 +18,15 @@
     "complexity:check": "eslint --config eslint.complexity-check.config.mjs \"packages/kafka/**/*.ts\"",
     "complexity:report": "node scripts/collect-cognitive-complexity.mjs",
     "release:check:readme-links": "node scripts/check-readme-links.mjs",
+    "release:check:sample-versions": "node scripts/check-sample-version-sync.mjs",
     "release:check:pack": "npm run build --workspace @nest-native/kafka && node scripts/check-package-pack.mjs",
-    "release:check": "npm run release:check:readme-links && npm run release:check:pack",
+    "release:check": "npm run release:check:readme-links && npm run release:check:sample-versions && npm run release:check:pack",
     "security:audit": "npm audit --audit-level=high",
-    "ci": "npm run typecheck && npm run test:cov && npm run complexity:check && npm run complexity:report && npm run release:check && npm run security:audit"
+    "showcase": "node scripts/run-optional-workspace.cjs nest-native-kafka-showcase test",
+    "sample:focused": "node scripts/run-focused-samples.mjs",
+    "sample": "npm run showcase && npm run sample:focused",
+    "ci:sample": "npm run sample",
+    "ci": "npm run typecheck && npm run test:cov && npm run complexity:check && npm run complexity:report && npm run release:check && npm run security:audit && npm run ci:sample"
   },
   "engines": {
     "node": ">=20"
