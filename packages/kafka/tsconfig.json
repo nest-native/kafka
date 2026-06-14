@@ -1,0 +1,15 @@
+{
+  "extends": "./tsconfig.build.json",
+  "compilerOptions": {
+    "composite": false,
+    "incremental": false,
+    "noEmit": true,
+    "types": ["node"]
+  },
+  "include": [
+    "kafka.module.ts",
+    "index.ts",
+    "interfaces.ts"
+  ],
+  "exclude": ["dist", "node_modules", "test/**/*", "*.spec.ts"]
+}
