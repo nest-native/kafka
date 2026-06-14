@@ -77,6 +77,7 @@ function buildExplorer(
     new ApplicationConfig(),
     { resolve: async () => instance } as never,
     driver,
+    {},
   );
 }
 
@@ -128,6 +129,7 @@ describe('KafkaConsumerExplorer (unit)', () => {
       new ApplicationConfig(),
       { resolve: async () => ({}) } as never,
       driver,
+      {},
     );
 
     await explorer.onApplicationBootstrap();
