@@ -22,6 +22,9 @@ Current samples:
 - `05-transactions` — the transactional producer helper
   (`KafkaProducerService.transactional`): atomic multi-topic writes, abort on
   throw, and the consume-process-produce `sendOffsets` pattern.
+- `06-microservice-migration` — porting a `@nestjs/microservices` Kafka handler
+  to `@nest-native/kafka` and testing it with `KafkaTestModule` and its in-memory
+  broker (see [`docs/migration-from-nestjs-microservices.md`](../docs/migration-from-nestjs-microservices.md)).
 
 ## Commands
 

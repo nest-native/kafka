@@ -263,6 +263,7 @@ jobs:
           | `03-headers-context-errors` | In-memory loopback broker; no broker required |
           | `04-batch-concurrency` | In-memory loopback broker; no broker required |
           | `05-transactions` | In-memory transactional broker; no broker required |
+          | `06-microservice-migration` | In-memory `KafkaTestModule` broker; no broker required |
 
           Set `KAFKA_BROKERS` to run the same sample against a real Kafka cluster
           through Confluent's client. Broker credentials are never printed in this
