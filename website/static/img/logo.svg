@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="200" height="200" viewBox="0 0 200 200" role="img" aria-label="@nest-native/kafka">
+  <rect width="200" height="200" rx="24" fill="#0f766e"/>
+  <circle cx="64" cy="64" r="14" fill="#ffffff"/>
+  <circle cx="64" cy="136" r="14" fill="#ffffff"/>
+  <circle cx="140" cy="100" r="14" fill="#ffffff"/>
+  <path d="M64 64v72" stroke="#ffffff" stroke-width="6" stroke-linecap="round"/>
+  <path d="M64 64 140 100M64 136 140 100" stroke="#ffffff" stroke-width="6" stroke-linecap="round"/>
+</svg>
