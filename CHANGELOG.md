@@ -23,6 +23,21 @@ package release is useful for users.
 - Samples: `00-showcase` (producer + consumer across two feature modules with the
   full enhancer pipeline, request-scoped DI, and a chained consumer) and
   `02-consumer-enhancers` (a focused guard/interceptor/pipe/filter walkthrough).
+- Batch consumption: `@KafkaHandler(topic?, { batch: true })` runs once per
+  fetched topic-partition batch, with `@KafkaMessage()` resolving to the array of
+  deserialized payloads and the new `@KafkaBatch()` decorator (and
+  `KafkaBatchContext`) exposing the raw `KafkaConsumerBatch`.
+- Per-topic concurrency (`nestjs/nest#12703`): a `concurrency` option on
+  `KafkaModule.forRoot`, `@KafkaConsumer`, and `@KafkaHandler` sets the consumer's
+  `partitionsConsumedConcurrently` (default `1`, strict per-partition ordering).
+- Backpressure: a `maxInFlight` option (module / consumer / handler) caps how many
+  messages or batches a consumer processes at once (default uncapped).
+- Rebalance-safe batch offsets (`nestjs/nest#12355`): batch consumers resolve each
+  message's offset as it is processed instead of relying on the client's
+  all-or-nothing batch auto-resolve.
+- Sample `04-batch-concurrency` demonstrating batch consume, per-topic
+  concurrency, and rebalance-safe offset resolution; the showcase gains an
+  `analytics` batch consumer.
 
 ## 0.0.0 - 2026-06-13
 
