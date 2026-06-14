@@ -59,6 +59,8 @@ export class OrdersConsumer {
       messages: [
         {
           key: order.id,
+          // Header conventions stay neutral: the app picks its own key here.
+          headers: { 'x-tenant': order.tenant },
           value: JSON.stringify({
             orderId: order.id,
             message: `Order ${order.id} confirmed`,
