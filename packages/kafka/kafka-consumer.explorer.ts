@@ -37,8 +37,14 @@ import { KafkaContext, KafkaIncomingMessage } from './kafka-context';
 import {
   KafkaConsumerMetadata,
   KafkaHandlerMetadata,
+  KafkaModuleOptions,
 } from './interfaces';
-import { KAFKA_CLIENT_DRIVER } from './tokens';
+import {
+  applyKafkaErrorBehavior,
+  defaultKafkaErrorMapper,
+  KafkaErrorMapper,
+} from './kafka-error-mapping';
+import { KAFKA_CLIENT_DRIVER, KAFKA_MODULE_OPTIONS } from './tokens';
 
 /**
  * The slice of Nest's `InstanceWrapper` the explorer relies on, captured locally
@@ -78,6 +84,19 @@ export class KafkaConsumerExplorer
   private readonly logger = new Logger(KafkaConsumerExplorer.name);
   private readonly contextCreator: KafkaContextCreator;
   private readonly consumers: KafkaDriverConsumer[] = [];
+  private readonly errorMapper: KafkaErrorMapper;
+
+  /**
+   * Messages currently being handled. Graceful shutdown drains this set before
+   * disconnecting so an in-flight handler is never interrupted mid-message.
+   */
+  private readonly inFlight = new Set<Promise<void>>();
+
+  /**
+   * Once shutdown begins the explorer stops accepting newly delivered messages
+   * (§ graceful shutdown: stop new claims → drain in-flight → disconnect).
+   */
+  private shuttingDown = false;
 
   constructor(
     private readonly metadataScanner: MetadataScanner,
@@ -86,10 +105,12 @@ export class KafkaConsumerExplorer
     private readonly applicationConfig: ApplicationConfig,
     private readonly moduleRef: ModuleRef,
     @Inject(KAFKA_CLIENT_DRIVER) private readonly driver: KafkaClientDriver,
+    @Inject(KAFKA_MODULE_OPTIONS) private readonly options: KafkaModuleOptions,
   ) {
     this.contextCreator = new KafkaContextCreator(
       createKafkaEnhancerRuntime(this.modulesContainer, this.applicationConfig),
     );
+    this.errorMapper = this.options.errorMapper ?? defaultKafkaErrorMapper;
   }
 
   /**
@@ -106,11 +127,24 @@ export class KafkaConsumerExplorer
   }
 
   /**
-   * Disconnect every consumer during graceful shutdown.
+   * Graceful shutdown, in the order the constitution requires: stop accepting
+   * newly delivered messages, drain the messages already in flight so no handler
+   * is interrupted mid-message, then disconnect every consumer.
    */
   async onApplicationShutdown(): Promise<void> {
+    this.shuttingDown = true;
+    await this.drainInFlight();
     await Promise.all(this.consumers.map(consumer => consumer.disconnect()));
     this.consumers.length = 0;
+  }
+
+  /**
+   * Wait for every in-flight message to settle. A draining handler may itself
+   * dispatch nothing new (new claims are already refused), so a single pass over
+   * the snapshot is enough.
+   */
+  private async drainInFlight(): Promise<void> {
+    await Promise.allSettled([...this.inFlight]);
   }
 
   private discoverHandlers(): DiscoveredHandler[] {
@@ -224,6 +258,7 @@ export class KafkaConsumerExplorer
 
     const handler: KafkaHandlerContext = {
       callback: params.methodRef,
+      metatype: params.metatype,
       methodName: params.methodName,
       moduleKey: params.moduleKey,
       paramTypes,
@@ -308,18 +343,53 @@ export class KafkaConsumerExplorer
     return routes;
   }
 
-  private async dispatch(
+  private dispatch(
     routes: Map<string, DiscoveredHandler[]>,
     payload: KafkaEachMessagePayload,
   ): Promise<void> {
-    const matched = routes.get(payload.topic);
-    if (!matched) {
-      return;
+    // Stop accepting new claims once shutdown has begun: a message delivered
+    // during drain is ignored so its offset stays uncommitted and the broker
+    // redelivers it to the next instance instead of being dropped here.
+    if (this.shuttingDown) {
+      return Promise.resolve();
     }
 
+    const matched = routes.get(payload.topic);
+    if (!matched) {
+      return Promise.resolve();
+    }
+
+    const work = this.runHandlers(matched, payload);
+    this.track(work);
+    return work;
+  }
+
+  /**
+   * Track an in-flight message so graceful shutdown can drain it. The promise is
+   * removed once it settles, whether it resolved or rejected.
+   */
+  private track(work: Promise<void>): void {
+    this.inFlight.add(work);
+    const forget = (): void => {
+      this.inFlight.delete(work);
+    };
+    work.then(forget, forget);
+  }
+
+  private async runHandlers(
+    matched: DiscoveredHandler[],
+    payload: KafkaEachMessagePayload,
+  ): Promise<void> {
     const invocation = this.toInvocation(payload);
     for (const handler of matched) {
-      await handler.run(invocation);
+      try {
+        await handler.run(invocation);
+      } catch (error) {
+        // The handler's `@UseFilters` pipeline already ran; an error here means
+        // no filter handled it. Map it to commit-or-retry instead of letting it
+        // swallow silently (`nestjs/nest#9679`) or crash the consumer.
+        applyKafkaErrorBehavior(error, invocation.context, this.errorMapper);
+      }
     }
   }
 

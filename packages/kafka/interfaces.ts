@@ -4,6 +4,7 @@ import {
   KafkaDriverFactory,
   KafkaProducerConfig,
 } from './driver';
+import { KafkaErrorMapper } from './kafka-error-mapping';
 
 /**
  * Configuration for {@link KafkaModule.forRoot}.
@@ -51,6 +52,17 @@ export interface KafkaModuleOptions {
    * handlers without a broker.
    */
   driverFactory?: KafkaDriverFactory;
+
+  /**
+   * Map an unhandled handler error to consumer behaviour (commit the offset or
+   * retry by redelivery). Defaults to {@link defaultKafkaErrorMapper}, which
+   * commits 4xx-style client errors and retries everything else.
+   *
+   * Only errors that escape the handler's `@UseFilters` exception filters reach
+   * this mapper, so an application can still acknowledge any error by catching
+   * it in a filter.
+   */
+  errorMapper?: KafkaErrorMapper;
 }
 
 /**

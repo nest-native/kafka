@@ -363,11 +363,23 @@ describe('Kafka consumer transport', () => {
     await app.close();
   });
 
-  it('rethrows when no filter handles the exception', async () => {
+  it('retries (rethrows) an unhandled non-client error and commits a 4xx', async () => {
     const driver = createControllableDriver();
 
+    // A bare Error is treated as transient by the default mapper, so it must
+    // surface to the driver (offset uncommitted → redelivery).
     @KafkaConsumer('explode')
     class ExplodingConsumer {
+      @KafkaHandler()
+      handle(): void {
+        throw new Error('downstream timeout');
+      }
+    }
+
+    // A 4xx client error is non-retryable, so the default mapper commits it: the
+    // explorer swallows the error instead of rethrowing.
+    @KafkaConsumer('bad-payload')
+    class BadPayloadConsumer {
       @KafkaHandler()
       handle(): void {
         throw new UnauthorizedException('nope');
@@ -377,15 +389,18 @@ describe('Kafka consumer transport', () => {
     const moduleRef = await Test.createTestingModule({
       imports: [
         KafkaModule.forRoot({ driverFactory: driver.factory }),
-        KafkaModule.forFeature([ExplodingConsumer]),
+        KafkaModule.forFeature([ExplodingConsumer, BadPayloadConsumer]),
       ],
     }).compile();
     const app = await moduleRef.init();
 
     await assert.rejects(
       driver.emit(messagePayload('explode', { id: 'x' })),
-      /nope/,
+      /downstream timeout/,
     );
+
+    // The 4xx error is committed, not rethrown.
+    await driver.emit(messagePayload('bad-payload', { id: 'x' }));
 
     await app.close();
   });
@@ -661,6 +676,119 @@ describe('Kafka consumer transport', () => {
 
     await driver.emit(messagePayload('known', { id: 1 }));
     assert.equal(calls, 1);
+
+    await app.close();
+  });
+
+  it('drains an in-flight message before disconnecting on shutdown', async () => {
+    const driver = createControllableDriver();
+    let release: () => void = () => {};
+    const gate = new Promise<void>(resolve => {
+      release = resolve;
+    });
+    let completed = false;
+
+    @KafkaConsumer('slow')
+    class SlowConsumer {
+      @KafkaHandler()
+      async handle(): Promise<void> {
+        await gate;
+        completed = true;
+      }
+    }
+
+    const moduleRef = await Test.createTestingModule({
+      imports: [
+        KafkaModule.forRoot({ driverFactory: driver.factory }),
+        KafkaModule.forFeature([SlowConsumer]),
+      ],
+    }).compile();
+    const app = await moduleRef.init();
+
+    // Deliver without awaiting so the handler is parked on the gate, in flight.
+    const eachMessage = driver.consumers[0].eachMessage;
+    assert.ok(eachMessage);
+    const inFlight = eachMessage(messagePayload('slow', { id: 1 }));
+
+    // Begin shutdown while the handler is still parked, then let it finish.
+    const closing = app.close();
+    release();
+    await closing;
+    await inFlight;
+
+    // The handler ran to completion before the consumer disconnected.
+    assert.equal(completed, true);
+    assert.equal(driver.consumers[0].disconnected, 1);
+  });
+
+  it('stops accepting new claims once shutdown has begun', async () => {
+    const driver = createControllableDriver();
+    const handled: number[] = [];
+
+    @KafkaConsumer('gated')
+    class GatedConsumer {
+      @KafkaHandler()
+      handle(payload: { id: number }): void {
+        handled.push(payload.id);
+      }
+    }
+
+    const moduleRef = await Test.createTestingModule({
+      imports: [
+        KafkaModule.forRoot({ driverFactory: driver.factory }),
+        KafkaModule.forFeature([GatedConsumer]),
+      ],
+    }).compile();
+    const app = await moduleRef.init();
+    const eachMessage = driver.consumers[0].eachMessage;
+    assert.ok(eachMessage);
+
+    await eachMessage(messagePayload('gated', { id: 1 }));
+    await app.close();
+
+    // A record delivered after shutdown began is refused (offset uncommitted),
+    // so the handler never runs for it.
+    await eachMessage(messagePayload('gated', { id: 2 }));
+
+    assert.deepEqual(handled, [1]);
+  });
+
+  it('honours a custom error mapper that commits every failure', async () => {
+    const driver = createControllableDriver();
+    const mapped: { topic: string; message: string }[] = [];
+
+    @KafkaConsumer('mapped')
+    class MappedConsumer {
+      @KafkaHandler()
+      handle(): void {
+        throw new Error('always transient');
+      }
+    }
+
+    const moduleRef = await Test.createTestingModule({
+      imports: [
+        KafkaModule.forRoot({
+          driverFactory: driver.factory,
+          // A plain Error would normally retry (rethrow); the custom mapper
+          // records it and commits instead, so the emit resolves.
+          errorMapper: (error, context) => {
+            mapped.push({
+              topic: context.getTopic(),
+              message: (error as Error).message,
+            });
+            return 'commit';
+          },
+        }),
+        KafkaModule.forFeature([MappedConsumer]),
+      ],
+    }).compile();
+    const app = await moduleRef.init();
+
+    await driver.emit(messagePayload('mapped', { id: 1 }));
+
+    assert.deepEqual(mapped, [
+      { topic: 'mapped', message: 'always transient' },
+    ]);
 
     await app.close();
   });

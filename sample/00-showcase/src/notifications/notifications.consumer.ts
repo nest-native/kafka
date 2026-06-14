@@ -1,5 +1,12 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { KafkaConsumer, KafkaContext, KafkaHandler } from '@nest-native/kafka';
+import {
+  KafkaConsumer,
+  KafkaContext,
+  KafkaCtx,
+  KafkaHandler,
+  KafkaHeaders,
+  KafkaMessage,
+} from '@nest-native/kafka';
 import { MessageLog } from '../common/message-log.service';
 import { NOTIFICATIONS_TOPIC } from '../orders/orders.consumer';
 
@@ -10,8 +17,10 @@ interface NotificationEvent {
 
 /**
  * A second feature's consumer, subscribed to the notification events the orders
- * consumer publishes. It shows a different consumer group and reading the raw
- * transport context through the second handler argument.
+ * consumer publishes. It shows the milestone-4 parameter decorators: the parsed
+ * payload via `@KafkaMessage()`, a single header by key via `@KafkaHeaders()`,
+ * and the raw transport context via `@KafkaCtx()` — mirroring `@Payload()` /
+ * `@Ctx()` from `@nestjs/microservices`.
  */
 @KafkaConsumer(NOTIFICATIONS_TOPIC, { groupId: 'showcase-notifications' })
 export class NotificationsConsumer {
@@ -20,10 +29,16 @@ export class NotificationsConsumer {
   constructor(private readonly log: MessageLog) {}
 
   @KafkaHandler()
-  handle(event: NotificationEvent, context: KafkaContext): void {
+  handle(
+    @KafkaMessage() event: NotificationEvent,
+    @KafkaHeaders('x-tenant') tenant: string | Buffer | undefined,
+    @KafkaCtx() context: KafkaContext,
+  ): void {
     this.log.record('notifications', event.message);
     this.logger.log(
-      `Notification on "${context.getTopic()}": ${event.message}`,
+      `Notification on "${context.getTopic()}" for tenant "${String(
+        tenant,
+      )}": ${event.message}`,
     );
   }
 }

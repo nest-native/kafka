@@ -1,6 +1,13 @@
 import { KafkaMessageHeaders } from './driver';
 
 /**
+ * An empty, frozen header map returned when a consumed message carries no
+ * headers. Shared so every header-less message resolves to the same object
+ * instead of allocating a fresh one per message.
+ */
+const EMPTY_HEADERS: KafkaMessageHeaders = Object.freeze({});
+
+/**
  * A message as it is delivered to a consumer handler, mirroring the
  * KafkaJS-compatible `Message` shape Confluent's client emits. Kept local so the
  * package never imports the optional native peer's types.
@@ -52,5 +59,18 @@ export class KafkaContext {
    */
   getMessage(): KafkaIncomingMessage {
     return this.message;
+  }
+
+  /**
+   * The headers attached to the message, or an empty (frozen) map when the
+   * message carries none. This is the value resolved by the `@KafkaHeaders()`
+   * parameter decorator.
+   *
+   * Header conventions stay neutral on purpose: the package never standardises
+   * `traceId` / `correlationId` / `messageType` keys, so the raw header map is
+   * returned exactly as Confluent's client delivered it.
+   */
+  getHeaders(): KafkaMessageHeaders {
+    return this.message.headers ?? EMPTY_HEADERS;
   }
 }

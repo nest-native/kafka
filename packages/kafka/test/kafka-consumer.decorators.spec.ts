@@ -95,4 +95,20 @@ describe('KafkaContext', () => {
     assert.equal(context.getPartition(), 3);
     assert.equal(context.getMessage(), message);
   });
+
+  it('returns the message headers when present', () => {
+    const headers = { 'x-trace': 'abc' };
+    const context = new KafkaContext('orders', 0, {
+      value: 'p',
+      headers,
+    });
+
+    assert.equal(context.getHeaders(), headers);
+  });
+
+  it('returns an empty header map when the message carries none', () => {
+    const context = new KafkaContext('orders', 0, { value: 'p' });
+
+    assert.deepEqual(context.getHeaders(), {});
+  });
 });

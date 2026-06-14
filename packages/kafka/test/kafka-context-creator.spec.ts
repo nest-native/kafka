@@ -23,7 +23,11 @@ function createRuntime(
     guardsConsumer: { tryActivate: async () => true },
     interceptorsContextCreator: { create: () => [] },
     interceptorsConsumer: { intercept: async () => undefined },
-    pipesContextCreator: { create: () => [] },
+    pipesContextCreator: {
+      create: () => [],
+      createConcreteContext: () => [],
+      setModuleContext: () => {},
+    },
     pipesConsumer: { apply: async value => value },
     exceptionFiltersContext: {
       create: () => ({
@@ -43,6 +47,7 @@ function handlerContext(
   },
 ): KafkaHandlerContext {
   return {
+    metatype: class TestConsumer {},
     methodName: 'handle',
     moduleKey: '',
     paramTypes: [],
@@ -194,7 +199,11 @@ describe('KafkaContextCreator', () => {
     } as unknown as Controller;
 
     const runtime = createRuntime({
-      pipesContextCreator: { create: () => [{ transform: v => v }] },
+      pipesContextCreator: {
+        create: () => [{ transform: v => v }],
+        createConcreteContext: () => [],
+        setModuleContext: () => {},
+      },
       pipesConsumer: {
         apply: async value => ({ wrapped: value }),
       },

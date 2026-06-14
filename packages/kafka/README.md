@@ -11,11 +11,11 @@
 > **Status: under construction.** Today the module
 > (`KafkaModule.forRoot()` / `forRootAsync()` / `forFeature()`), the
 > `KafkaProducerService` (`send`, `sendBatch`, `transactional`),
-> `@InjectKafkaProducer()`, and the consumer decorators (`@KafkaConsumer`,
-> `@KafkaHandler`) with the full Nest enhancer pipeline exist. The parameter
-> decorators (`@KafkaMessage`, `@KafkaHeaders`, `@KafkaContext`), error mapping,
-> and graceful shutdown land in later milestones. Do not depend on this in
-> production yet.
+> `@InjectKafkaProducer()`, the consumer decorators (`@KafkaConsumer`,
+> `@KafkaHandler`) with the full Nest enhancer pipeline, the parameter decorators
+> (`@KafkaMessage`, `@KafkaHeaders`, `@KafkaCtx`), error mapping, and graceful
+> shutdown exist. Batch consume, per-topic concurrency, and the `KafkaTestModule`
+> land in later milestones. Do not depend on this in production yet.
 
 ## What This Is
 
@@ -140,6 +140,68 @@ in a module's `providers`. Consumers in the same consumer group share a single
 Confluent consumer so partitions balance across instances. The payload is
 JSON-parsed by default, falling back to the decoded string for non-JSON values;
 header conventions stay neutral.
+
+### Parameter decorators
+
+Instead of the positional `(payload, context)` arguments you can decorate
+individual parameters, mirroring `@Payload()` / `@Ctx()` from
+`@nestjs/microservices`. The decorators participate in the enhancer pipeline, so
+param-level pipes run just as they do on an HTTP controller argument:
+
+```ts
+import { ParseIntPipe } from '@nestjs/common';
+import {
+  KafkaConsumer,
+  KafkaContext,
+  KafkaCtx,
+  KafkaHandler,
+  KafkaHeaders,
+  KafkaMessage,
+  KafkaMessageHeaders,
+} from '@nest-native/kafka';
+
+@KafkaConsumer('orders.placed')
+export class OrdersConsumer {
+  @KafkaHandler()
+  handle(
+    @KafkaMessage() order: OrderPlaced, // whole parsed payload
+    @KafkaMessage('id') id: string, // one payload property
+    @KafkaHeaders() headers: KafkaMessageHeaders, // all headers (empty if none)
+    @KafkaHeaders('trace-id') traceId: string | Buffer, // one header by key
+    @KafkaCtx() context: KafkaContext, // topic, partition, raw message, headers
+  ): void {}
+}
+```
+
+### Error mapping
+
+When a handler throws and no `@UseFilters` exception filter handles it, the
+transport maps the error to consumer behaviour instead of swallowing it
+(`nestjs/nest#9679`):
+
+- A 4xx `HttpException` (e.g. `BadRequestException`) is a non-retryable client
+  error, so the offset is committed — a poison message is acknowledged instead of
+  redelivered forever.
+- Any other error (a 5xx `HttpException`, an `RpcException`, or an arbitrary
+  thrown value) is treated as transient and retried: the offset is left
+  uncommitted so the broker redelivers.
+
+Override the policy with your own mapper — for example to route a failure to a
+dead-letter topic before committing:
+
+```ts
+KafkaModule.forRoot({
+  client: { brokers: ['localhost:9092'] },
+  errorMapper: (error, context) => (isFatal(error) ? 'commit' : 'retry'),
+});
+```
+
+### Graceful shutdown
+
+On `app.close()` the transport stops accepting newly delivered messages, drains
+the messages already in flight so no handler is interrupted mid-message, then
+disconnects every consumer. Enable Nest's shutdown hooks
+(`app.enableShutdownHooks()`) for it to run on `SIGTERM`/`SIGINT`.
 
 ### Testing without a broker
 

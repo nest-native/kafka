@@ -3,19 +3,20 @@ import type {
   KafkaConsumerConfig,
   KafkaDriverConsumer,
   KafkaDriverProducer,
-  KafkaEachMessageHandler,
   KafkaProducerMessage,
+  KafkaEachMessageHandler,
   KafkaRecordMetadata,
 } from '@nest-native/kafka';
 
 /**
- * A tiny in-memory broker that loops produced messages straight to the
- * consumers subscribed to their topic.
+ * A tiny in-memory broker that loops produced messages straight to the consumers
+ * subscribed to their topic, forwarding headers so the `@KafkaHeaders()`
+ * decorator has something to read.
  *
- * It lets the consumer samples — and their smoke tests — run the full
- * `@KafkaConsumer` / `@KafkaHandler` pipeline (guards, interceptors, pipes,
- * filters) without a real Kafka broker or the native `librdkafka` install. The
- * real Confluent driver is only used when `KAFKA_BROKERS` is set.
+ * Unlike the showcase broker it surfaces a delivery error back to the producer's
+ * caller, so the smoke test can observe the transport's error mapping: a message
+ * the default mapper retries rethrows here (the offset would stay uncommitted on
+ * a real broker), while one the mapper commits resolves cleanly.
  */
 export class InMemoryBroker {
   private readonly consumers: {
@@ -41,16 +42,7 @@ export class InMemoryBroker {
           metadata(record.topic, index),
         );
       },
-      sendBatch: async batch => {
-        const results: KafkaRecordMetadata[] = [];
-        for (const topicMessages of batch.topicMessages ?? []) {
-          await this.deliver(topicMessages.topic, topicMessages.messages);
-          topicMessages.messages.forEach((_, index) =>
-            results.push(metadata(topicMessages.topic, index)),
-          );
-        }
-        return results;
-      },
+      sendBatch: async () => [],
       transaction: async () => {
         throw new Error('Transactions arrive in a later milestone.');
       },
@@ -90,23 +82,17 @@ export class InMemoryBroker {
         continue;
       }
       for (let partition = 0; partition < messages.length; partition += 1) {
-        // Producers and consumers are decoupled in Kafka: a handler that throws
-        // (for example after a guard denies the message and no filter handles
-        // the exception) must never fail the producer's send. The loopback keeps
-        // that contract by isolating each delivery.
-        try {
-          await consumer.eachMessage({
-            topic,
-            partition,
-            message: {
-              key: messages[partition].key ?? null,
-              value: messages[partition].value,
-              headers: messages[partition].headers,
-            },
-          });
-        } catch {
-          // Swallowed: milestone 4 introduces explicit error mapping and retries.
-        }
+        // A retried error rethrows here, mirroring a real broker leaving the
+        // offset uncommitted; a committed error resolves cleanly.
+        await consumer.eachMessage({
+          topic,
+          partition,
+          message: {
+            key: messages[partition].key ?? null,
+            value: messages[partition].value,
+            headers: messages[partition].headers,
+          },
+        });
       }
     }
   }
