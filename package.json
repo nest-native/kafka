@@ -21,12 +21,15 @@
     "release:check:sample-versions": "node scripts/check-sample-version-sync.mjs",
     "release:check:pack": "npm run build --workspace @nest-native/kafka && node scripts/check-package-pack.mjs",
     "release:check": "npm run release:check:readme-links && npm run release:check:sample-versions && npm run release:check:pack",
-    "security:audit": "npm audit --audit-level=high",
+    "ci:docs": "npm --prefix website ci && npm --prefix website run build",
+    "security:audit:package": "npm audit --audit-level=high",
+    "security:audit:docs": "npm --prefix website audit --audit-level=high",
+    "security:audit": "npm run security:audit:package && npm run security:audit:docs",
     "showcase": "node scripts/run-optional-workspace.cjs nest-native-kafka-showcase test",
     "sample:focused": "node scripts/run-focused-samples.mjs",
     "sample": "npm run showcase && npm run sample:focused",
     "ci:sample": "npm run sample",
-    "ci": "npm run typecheck && npm run test:cov && npm run complexity:check && npm run complexity:report && npm run release:check && npm run security:audit && npm run ci:sample"
+    "ci": "npm run typecheck && npm run test:cov && npm run complexity:check && npm run complexity:report && npm run release:check && npm run ci:docs && npm run security:audit && npm run ci:sample"
   },
   "engines": {
     "node": ">=20"
