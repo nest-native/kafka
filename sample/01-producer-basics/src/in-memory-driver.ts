@@ -22,6 +22,14 @@ export function createInMemoryDriverFactory(
   return () => {
     const driver: KafkaClientDriver = {
       createProducer: () => createInMemoryProducer(handler),
+      // This basics sample only produces, so the consumer is a no-op. The
+      // showcase and consumer-focused samples exercise the consumer path.
+      createConsumer: () => ({
+        connect: async () => {},
+        disconnect: async () => {},
+        subscribe: async () => {},
+        run: async () => {},
+      }),
     };
     return driver;
   };
