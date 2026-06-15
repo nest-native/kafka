@@ -4,8 +4,11 @@ Thanks for helping improve `@nest-native/kafka`.
 
 ## Project Status
 
-This package is published and stable at `v0.1.x`. The full v1 transport surface
-has shipped — the module (`KafkaModule.forRoot()` / `forRootAsync()` /
+This package is published at `0.1.x` (`0.x`): functional and fully tested, and
+usable today, though the public API may still change before `1.0` (per semver,
+`0.x` minor releases can include breaking changes — pin a version). The initial
+`0.x` release covers the transport surface — the module
+(`KafkaModule.forRoot()` / `forRootAsync()` /
 `forFeature()`), the `KafkaProducerService`, the consumer decorators
 (`@KafkaConsumer`, `@KafkaHandler`) with the complete Nest enhancer pipeline, the
 parameter decorators (`@KafkaMessage`, `@KafkaHeaders`, `@KafkaCtx`,

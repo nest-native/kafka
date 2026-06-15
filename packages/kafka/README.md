@@ -8,7 +8,11 @@
 </p>
 
 > [!NOTE]
-> **Status: 0.1.0 — first release.** The full v1 surface is in place: the module
+> **Status: `0.1.1` (`0.x`).** Functional and fully tested (100% coverage), and
+> usable today — but the public API may still change before `1.0`. Per semver,
+> `0.x` minor releases can include breaking changes, so pin a version. See the
+> [support policy](https://nest-native.dev/kafka/support-policy). The initial
+> `0.x` release covers the module
 > (`KafkaModule.forRoot()` / `forRootAsync()` / `forFeature()`), the
 > `KafkaProducerService` (`send`, `sendBatch`, `transactional`),
 > `@InjectKafkaProducer()`, the consumer decorators (`@KafkaConsumer`,
