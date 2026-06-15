@@ -8,6 +8,33 @@ package release is useful for users.
 
 ## Unreleased
 
+## 0.1.1 - 2026-06-15
+
+A documentation-truth and CI-hardening release. No public API changes.
+
+### Added
+
+- A real-broker CI integration test (`packages/kafka/test/kafka.integration.spec.ts`)
+  and a `test:integration` npm script, gated on `KAFKA_BROKERS`. A dedicated
+  `integration` CI job stands up a single-node KRaft Kafka (`apache/kafka`) and
+  runs a real produce → consume round-trip, a transactional commit via
+  `KafkaProducerService.transactional`, and per-topic concurrency with durable
+  offset commits against the live broker. The suite is skipped when
+  `KAFKA_BROKERS` is unset, so it never affects the 100% coverage gate, and it
+  installs the optional `@confluentinc/kafka-javascript` peer on-demand (the
+  published package still keeps `"dependencies": {}`).
+
+### Docs
+
+- Dropped the stale "scaffold / under construction" framing from the root
+  `README.md` (removed the scaffold status badge, the warning block, and the
+  "consumer decorators and the producer service are not implemented yet" line;
+  reframed the milestone roadmap as "what shipped in v0.1"; added docs and
+  downloads badges) and from `CONTRIBUTING.md`. Documented that
+  `@confluentinc/kafka-javascript` stays an optional peer but is required for
+  real (non-test) usage. Reconciled `website/docs/quality-and-ci.md` so the
+  real-broker integration claim is accurate.
+
 ## 0.1.0 - 2026-06-14
 
 First published release. The full v1 surface — the module, the producer service,
