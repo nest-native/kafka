@@ -1,9 +1,9 @@
 # Roadmap
 
-The v1 boundaries are deliberate. This page records what ships, what does not, and
-the posture for the future.
+The `0.x` scope boundaries are deliberate. This page records what ships, what does
+not, and the posture for the future.
 
-## What v1 Ships
+## What the Initial 0.x Release Ships
 
 - `KafkaModule.forRoot` / `forRootAsync` / `forFeature`.
 - Consumer decorators (`@KafkaConsumer`, `@KafkaHandler`) with the full enhancer
@@ -16,7 +16,7 @@ the posture for the future.
 - One showcase sample plus focused samples, and CI parity with the family.
 - A migration guide from `@nestjs/microservices`'s Kafka transport.
 
-## What v1 Does Not Ship
+## What It Does Not Ship
 
 Resisting scope creep into a "Kafka platform" is a stated goal:
 

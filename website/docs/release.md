@@ -27,7 +27,7 @@ tarball, so a drifted version fails the gate before it can be published.
 
 ## The 0.1.0 Release
 
-The first published version is `0.1.0`. It ships the full v1 surface: the module,
+The first published version is `0.1.0`. The initial `0.x` release covers the module,
 the producer service, consumer decorators with the full enhancer pipeline, the
 parameter decorators, error mapping, batch consumption with per-topic concurrency,
 the transactional producer, `KafkaTestModule`, the migration guide, and this
