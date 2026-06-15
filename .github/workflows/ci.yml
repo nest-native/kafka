@@ -267,9 +267,72 @@ jobs:
 
           Set `KAFKA_BROKERS` to run the same sample against a real Kafka cluster
           through Confluent's client. Broker credentials are never printed in this
-          summary.
+          summary. The dedicated `integration` job exercises a real produce ->
+          consume round-trip, a transactional commit, and per-topic concurrency
+          against a single-node KRaft Kafka.
           EOF
           sed -i "s/DURATION_PLACEHOLDER/${DURATION_SECONDS}s (${DURATION_MS}ms)/" "$GITHUB_STEP_SUMMARY"
+
+  integration:
+    name: Real-broker integration (KRaft Kafka)
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '22'
+
+      - name: Install dependencies
+        run: npm ci
+
+      # `@confluentinc/kafka-javascript` is an optional peer (the published
+      # package keeps `"dependencies": {}`), so it is installed only for this job
+      # and never saved to package.json / package-lock.json.
+      - name: Install the optional Confluent client (this job only)
+        run: npm i --no-save "@confluentinc/kafka-javascript@^1.9"
+
+      - name: Start a single-node KRaft Kafka
+        run: |
+          docker run -d --name kafka -p 9092:9092 \
+            -e KAFKA_NODE_ID=1 \
+            -e KAFKA_PROCESS_ROLES=broker,controller \
+            -e KAFKA_LISTENERS=PLAINTEXT://0.0.0.0:9092,CONTROLLER://0.0.0.0:9093 \
+            -e KAFKA_ADVERTISED_LISTENERS=PLAINTEXT://localhost:9092 \
+            -e KAFKA_CONTROLLER_LISTENER_NAMES=CONTROLLER \
+            -e KAFKA_LISTENER_SECURITY_PROTOCOL_MAP=CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT \
+            -e KAFKA_CONTROLLER_QUORUM_VOTERS=1@localhost:9093 \
+            -e KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR=1 \
+            -e KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR=1 \
+            -e KAFKA_TRANSACTION_STATE_LOG_MIN_ISR=1 \
+            -e KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS=0 \
+            -e KAFKA_AUTO_CREATE_TOPICS_ENABLE=true \
+            -e CLUSTER_ID=5L6g3nShT-eMCtK--X86sw \
+            apache/kafka:3.8.1
+
+      - name: Wait for the broker to accept requests
+        run: |
+          for attempt in $(seq 1 60); do
+            if docker exec kafka /opt/kafka/bin/kafka-topics.sh \
+                --bootstrap-server localhost:9092 --list >/dev/null 2>&1; then
+              echo "Broker is ready after ${attempt} attempt(s)."
+              exit 0
+            fi
+            echo "Waiting for broker (attempt ${attempt})..."
+            sleep 2
+          done
+          echo "Broker did not become ready in time." >&2
+          docker logs kafka || true
+          exit 1
+
+      - name: Run the real-broker integration suite
+        env:
+          KAFKA_BROKERS: localhost:9092
+        run: npm run test:integration
+
+      - name: Dump broker logs on failure
+        if: failure()
+        run: docker logs kafka || true
 
   docs-site:
     name: Docusaurus build

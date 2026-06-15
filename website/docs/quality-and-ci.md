@@ -38,10 +38,27 @@ regenerated, and `release:check` validates the sync. See the [Release Guide](rel
 
 ## Driver-Backed Integration
 
-A driver-backed integration test runs against a real Kafka in CI through a
-GitHub-Actions service container, and is skipped locally when `KAFKA_BROKERS` is
-missing. The in-memory broker covers the same logic without native dependencies,
-so the full suite runs anywhere.
+A dedicated `integration` CI job stands up a single-node **KRaft** Kafka
+(`apache/kafka`) and runs `npm run test:integration` against it with
+`KAFKA_BROKERS=localhost:9092`. That suite (`packages/kafka/test/kafka.integration.spec.ts`)
+opens a real connection through `createConfluentDriver` and the native
+`@confluentinc/kafka-javascript` client to prove the behaviour the in-memory
+broker cannot: a real produce → consume round-trip, a transactional commit via
+`KafkaProducerService.transactional`, and per-topic concurrency with durable
+offset commits (a fresh consumer in the same group is not redelivered
+already-committed messages). Every topic and group name is unique per run.
+
+The suite is **gated on `KAFKA_BROKERS`**: it is skipped when the variable is
+unset, so it never runs during `npm run test:cov` and the 100% coverage gate is
+unaffected. `npm run test:integration` is separate from the `ci` script and is
+not part of the standard local gate — the in-memory broker covers the same
+transport logic without native dependencies, so the rest of the suite runs
+anywhere.
+
+`@confluentinc/kafka-javascript` stays an **optional** peer (the published
+package keeps `"dependencies": {}`), so the integration job installs it
+on-demand with `npm i --no-save` and never persists it to `package.json` or the
+lockfile.
 
 ## Supply Chain
 

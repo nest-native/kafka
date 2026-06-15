@@ -4,19 +4,24 @@
 
 <p align="center">
   <a href="https://www.npmjs.com/package/@nest-native/kafka"><img src="https://img.shields.io/npm/v/@nest-native/kafka.svg" alt="NPM Version" /></a>
+  <a href="https://www.npmjs.com/package/@nest-native/kafka"><img src="https://img.shields.io/npm/dm/@nest-native/kafka.svg" alt="NPM Downloads" /></a>
   <a href="https://opensource.org/licenses/MIT"><img src="https://img.shields.io/badge/license-MIT-green.svg" alt="Package License" /></a>
   <img src="https://img.shields.io/badge/coverage-100%25-brightgreen.svg" alt="Test Coverage" />
-  <img src="https://img.shields.io/badge/status-scaffold-orange.svg" alt="Status: scaffold" />
+  <a href="https://nest-native.dev/kafka/"><img src="https://img.shields.io/badge/docs-%40nest--native%2Fkafka-0f766e.svg" alt="Documentation" /></a>
 </p>
 
-> [!WARNING]
-> **Status: scaffold / under construction.** This repository is at its bootstrap
-> milestone (`v0.0.1-scaffold`). The npm workspace builds, typechecks, tests at
-> 100% coverage, and is CI-green, but the public transport API is not
-> implemented yet. Only `KafkaModule.forRoot()` / `KafkaModule.forRootAsync()` /
-> `KafkaModule.forFeature()` exist. The consumer decorators, parameter
-> decorators, the producer service, and the sample catalog arrive in later
-> milestones. Do not depend on this in production yet.
+> [!NOTE]
+> **Status: v0.1 — stable.** The full v1 surface is shipped: the module
+> (`KafkaModule.forRoot()` / `forRootAsync()` / `forFeature()`), the
+> `KafkaProducerService` (`send`, `sendBatch`, `transactional`),
+> `@InjectKafkaProducer()`, the consumer decorators (`@KafkaConsumer`,
+> `@KafkaHandler`) with the full Nest enhancer pipeline, the parameter decorators
+> (`@KafkaMessage`, `@KafkaHeaders`, `@KafkaCtx`, `@KafkaBatch`), error mapping,
+> graceful shutdown, batch consumption, per-topic concurrency, backpressure, the
+> testing utilities (`KafkaTestModule`, `InMemoryKafkaBroker`,
+> `createMockKafkaProducer`), the sample catalog, and the
+> [documentation site](https://nest-native.dev/kafka/). The published package keeps
+> `"dependencies": {}`.
 
 ## What This Is
 
@@ -72,15 +77,16 @@ the ecosystems they actually use.
 This repository contains:
 
 - [`packages/kafka`](packages/kafka): the `@nest-native/kafka` integration package
+- [`sample`](sample): the runnable sample catalog (producer basics, consumer
+  enhancers, headers/context/errors, batch + concurrency, transactions, and the
+  `@nestjs/microservices` migration)
+- [`website`](website): the [documentation site](https://nest-native.dev/kafka/) source
 - [`scripts`](scripts): quality, coverage, complexity, and release-check helpers
 - [`CONTRIBUTING.md`](CONTRIBUTING.md): contributor workflow, including the
   sample/library PR separation rule
 - [`CHANGELOG.md`](CHANGELOG.md): release history and unreleased changes
 - [`SECURITY.md`](SECURITY.md): vulnerability reporting and project security boundaries
 - [`GUIDELINES_NEST_KAFKA.md`](GUIDELINES_NEST_KAFKA.md): the project constitution
-
-Samples and a documentation site are part of the public learning path and arrive
-in later milestones.
 
 ## Installation
 
@@ -94,11 +100,9 @@ Required peers:
 npm i @nestjs/common @nestjs/core @nestjs/microservices reflect-metadata rxjs
 ```
 
-## Usage (scaffold)
+## Usage
 
-At this milestone the module only wires global configuration and a feature-module
-entry point. The consumer decorators and the producer service are not implemented
-yet.
+Wire the module with your broker connection:
 
 ```ts
 import { Module } from '@nestjs/common';
@@ -108,6 +112,7 @@ import { KafkaModule } from '@nest-native/kafka';
   imports: [
     KafkaModule.forRoot({
       clientId: 'orders-service',
+      client: { brokers: ['localhost:9092'] },
     }),
   ],
 })
@@ -121,11 +126,47 @@ KafkaModule.forRootAsync({
   inject: [ConfigService],
   useFactory: (config: ConfigService) => ({
     clientId: config.getOrThrow('KAFKA_CLIENT_ID'),
+    client: { brokers: config.getOrThrow('KAFKA_BROKERS').split(',') },
   }),
 });
 ```
 
-Feature modules register their handler classes through
+Publish messages with the injected `KafkaProducerService`, and consume them with
+`@KafkaConsumer` / `@KafkaHandler` classes that run through the full Nest enhancer
+pipeline (guards, interceptors, pipes, filters):
+
+```ts
+import { Injectable } from '@nestjs/common';
+import {
+  KafkaConsumer,
+  KafkaHandler,
+  KafkaMessage,
+  KafkaProducerService,
+} from '@nest-native/kafka';
+
+@Injectable()
+export class OrdersService {
+  constructor(private readonly producer: KafkaProducerService) {}
+
+  placeOrder(id: string) {
+    return this.producer.send({
+      topic: 'orders.placed',
+      messages: [{ key: id, value: JSON.stringify({ id }) }],
+    });
+  }
+}
+
+@Injectable()
+@KafkaConsumer('orders.placed', { groupId: 'orders-service' })
+export class OrdersConsumer {
+  @KafkaHandler()
+  handle(@KafkaMessage() order: { id: string }) {
+    // runs after guards, interceptors, and pipes; exception filters wrap it
+  }
+}
+```
+
+Feature modules register their consumer/handler classes through
 `KafkaModule.forFeature()`:
 
 ```ts
@@ -139,6 +180,11 @@ export class OrdersModule {}
 `isGlobal: false` to scope them to a single module boundary. `forFeature`
 returns a non-global module that registers and exports the supplied handlers.
 
+The full API — transactions, batch consumption, per-topic concurrency, error
+mapping, graceful shutdown, the parameter decorators, and the testing utilities —
+is covered in the package [README](packages/kafka/README.md) and the
+[documentation site](https://nest-native.dev/kafka/).
+
 ## Quality Gates
 
 The repository ships the same review posture as its sibling `@nest-native`
@@ -150,6 +196,9 @@ packages, using `node:test` and `c8`:
 - cognitive complexity enforcement with SonarJS threshold `15`
 - package tarball validation and README link validation
 - supply-chain audit for high-severity issues
+- a real-broker integration job that runs a produce → consume round-trip, a
+  transactional commit, and per-topic concurrency against a single-node KRaft
+  Kafka (skipped locally unless `KAFKA_BROKERS` is set)
 
 Run the local gate with:
 
@@ -157,20 +206,29 @@ Run the local gate with:
 npm run ci
 ```
 
-## Status and Roadmap
+## What Shipped in v0.1
 
-This is the bootstrap milestone. The planned path:
+The whole v1 surface is in place and published:
 
-1. **Bootstrap** — repo skeleton, empty package, CI green (this milestone).
-2. `KafkaModule.forRoot()` + producer service. One logging handler. Smoke test against a local Kafka container.
-3. `@KafkaConsumer` + `@KafkaHandler` with the full enhancer pipeline. Showcase sample.
-4. Header + context parameter decorators. Error mapping. Graceful shutdown.
-5. Batch consume + per-topic concurrency. Address `#12703` / `#12355` explicitly.
-6. Transactional producer helper.
-7. `KafkaTestModule` + mock helpers. Migration guide from `@nestjs/microservices` Kafka.
-8. Documentation site. Release `v0.1`.
+1. **The module** — `KafkaModule.forRoot()` / `forRootAsync()` / `forFeature()`,
+   the Kafka driver, and the shared producer.
+2. **Producer service** — `KafkaProducerService` (`send`, `sendBatch`,
+   `transactional`) and `@InjectKafkaProducer()` for the raw Confluent producer.
+3. **Consumers** — `@KafkaConsumer` + `@KafkaHandler` with the full Nest enhancer
+   pipeline (guards, interceptors, pipes, filters) and request-scoped DI.
+4. **Parameter decorators, error mapping, graceful shutdown** — `@KafkaMessage`,
+   `@KafkaHeaders`, `@KafkaCtx`, `@KafkaBatch`; commit-or-retry error mapping
+   (`#9679`); in-flight draining on shutdown.
+5. **Batch consume + per-topic concurrency** — addresses sequential per-topic
+   processing (`#12703`) and rebalance-safe offsets (`#12355`), plus backpressure.
+6. **Transactional producer helper** — `transactional(work)` with `sendOffsets`
+   for the consume-process-produce pattern.
+7. **Testing utilities** — `KafkaTestModule`, `InMemoryKafkaBroker`,
+   `createMockKafkaProducer`, and a migration guide from `@nestjs/microservices`.
+8. **Documentation site and the sample catalog**, plus a real-broker CI
+   integration test running against a single-node KRaft Kafka.
 
-See [CHANGELOG.md](CHANGELOG.md) for what has landed.
+See [CHANGELOG.md](CHANGELOG.md) for the per-release detail.
 
 ## License
 
