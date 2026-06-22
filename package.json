@@ -23,7 +23,7 @@
     "release:check:pack": "npm run build --workspace @nest-native/kafka && node scripts/check-package-pack.mjs",
     "release:check": "npm run release:check:readme-links && npm run release:check:sample-versions && npm run release:check:pack",
     "ci:docs": "npm --prefix website ci && npm --prefix website run build",
-    "security:audit:package": "npm audit --audit-level=high",
+    "security:audit:package": "npm audit --omit=dev --audit-level=high",
     "security:audit:docs": "npm --prefix website audit --audit-level=high",
     "security:audit": "npm run security:audit:package && npm run security:audit:docs",
     "showcase": "node scripts/run-optional-workspace.cjs nest-native-kafka-showcase test",

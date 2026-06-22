@@ -156,6 +156,18 @@ deliver on Confluent's officially supported client, never hide Kafka semantics.
   - SSL/SASL credential handling — never in samples, logs, or docs.
   - Topic ACL assumptions documented.
   - Secret leakage in payloads/headers shown in samples/tests/docs.
+- **Audit scope.** The `security:audit` release gate audits the *published*
+  surface — `npm audit --omit=dev --audit-level=high`. Since the package
+  publishes `"dependencies": {}`, this is exactly what consumers install.
+  Advisories confined to dev/peer/build tooling or the docs `website/` are
+  tracked and patched via Dependabot but do not block releases — they cannot
+  reach consumers. Patch them in their own PRs.
+- **Strictness scope.** The non-negotiables (100% coverage, cognitive-complexity
+  ≤ 15, zero published runtime deps, isolated major-version review) govern the
+  *core* published package (`packages/kafka`). Non-core code — `sample/*`, the
+  `website/`, and dev tooling — uses lighter rules: their dependency updates
+  (including majors) may merge on green CI without the core's major-isolation
+  ceremony.
 
 ### 10. Release Version Synchronization (MANDATORY)
 
