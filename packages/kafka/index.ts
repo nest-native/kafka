@@ -9,4 +9,3 @@ export * from './kafka-handler.decorator';
 export * from './kafka-params.decorators';
 export * from './kafka-context';
 export * from './kafka-error-mapping';
-export * from './testing';

@@ -243,7 +243,7 @@ import {
   InMemoryKafkaBroker,
   KAFKA_TEST_BROKER,
   KafkaTestModule,
-} from '@nest-native/kafka';
+} from '@nest-native/kafka/testing';
 
 const moduleRef = await Test.createTestingModule({
   imports: [KafkaTestModule.forRoot(), OrdersModule],
@@ -265,7 +265,8 @@ For a unit test of a service that injects the producer (no module needed), use
 the mock helper:
 
 ```ts
-import { createMockKafkaProducer, KafkaProducerService } from '@nest-native/kafka';
+import { KafkaProducerService } from '@nest-native/kafka';
+import { createMockKafkaProducer } from '@nest-native/kafka/testing';
 
 const { producer, calls } = createMockKafkaProducer();
 const service = new KafkaProducerService(producer);

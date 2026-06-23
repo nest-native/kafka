@@ -8,6 +8,24 @@ package release is useful for users.
 
 ## Unreleased
 
+## 0.2.0 - 2026-06-23
+
+### Changed
+
+- **BREAKING (testing entrypoint).** The testing utilities — `KafkaTestModule`,
+  `InMemoryKafkaBroker`, `createMockKafkaProducer`/`createMockTransaction`,
+  `InjectKafkaTestBroker`, and the `KAFKA_TEST_BROKER` token — are no longer
+  re-exported from the package root. Import them from the new
+  **`@nest-native/kafka/testing`** entrypoint instead. This keeps test
+  scaffolding (the in-memory broker, mock producer) out of consumers' production
+  import surface and bundles. Runtime exports (`KafkaModule`,
+  `KafkaProducerService`, decorators, driver, tokens) are unchanged.
+
+### Added
+
+- A `./testing` export subpath (`@nest-native/kafka/testing`) for the testing
+  utilities.
+
 ## 0.1.1 - 2026-06-15
 
 A documentation-truth and CI-hardening release. No public API changes.

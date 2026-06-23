@@ -1,6 +1,6 @@
 {
   "name": "@nest-native/kafka",
-  "version": "0.1.1",
+  "version": "0.2.0",
   "description": "Decorator-first NestJS Kafka integration built on Confluent's officially supported @confluentinc/kafka-javascript client",
   "keywords": [
     "nestjs",
@@ -33,6 +33,11 @@
       "types": "./dist/index.d.ts",
       "require": "./dist/index.js",
       "default": "./dist/index.js"
+    },
+    "./testing": {
+      "types": "./dist/testing/index.d.ts",
+      "require": "./dist/testing/index.js",
+      "default": "./dist/testing/index.js"
     },
     "./package.json": "./package.json"
   },
