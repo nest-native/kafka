@@ -1,8 +1,8 @@
 import {
   createConfluentDriver,
-  InMemoryKafkaBroker,
   type KafkaDriverFactory,
 } from '@nest-native/kafka';
+import { InMemoryKafkaBroker } from '@nest-native/kafka/testing';
 
 /**
  * Brokers parsed from `KAFKA_BROKERS`, or an empty list when unset. Empty means

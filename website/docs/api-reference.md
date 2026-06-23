@@ -84,5 +84,6 @@ The driver is an advanced seam. Most applications never touch it directly.
 | `createMockKafkaProducer` | function | Recording producer mock. |
 | `createMockTransaction` | function | Recording transaction mock. |
 
-See [Testing](testing.md). All testing utilities are also re-exported from the
-package root.
+See [Testing](testing.md). Import the testing utilities from the
+`@nest-native/kafka/testing` entrypoint — they are kept out of the package root
+so test scaffolding never enters a consumer's production import surface.

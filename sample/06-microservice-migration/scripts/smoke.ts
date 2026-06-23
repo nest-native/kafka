@@ -2,12 +2,12 @@ import 'reflect-metadata';
 import assert from 'node:assert/strict';
 import { Module } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
+import { KafkaProducerService } from '@nest-native/kafka';
 import {
   InMemoryKafkaBroker,
   KAFKA_TEST_BROKER,
-  KafkaProducerService,
   KafkaTestModule,
-} from '@nest-native/kafka';
+} from '@nest-native/kafka/testing';
 import {
   OrderPlaced,
   OrdersConsumer,

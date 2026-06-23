@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
-import { InMemoryKafkaBroker, KafkaModule } from '@nest-native/kafka';
+import { KafkaModule } from '@nest-native/kafka';
+import { InMemoryKafkaBroker } from '@nest-native/kafka/testing';
 import { resolveBrokers, resolveDriverFactory } from './kafka-driver';
 import { OrdersConsumer, OrdersInbox } from './orders.consumer';
 import { OrdersService } from './orders.service';
