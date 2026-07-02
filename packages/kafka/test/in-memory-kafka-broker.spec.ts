@@ -302,4 +302,92 @@ describe('InMemoryKafkaBroker', () => {
     assert.deepEqual(received, []);
     assert.deepEqual(broker.getSent(), []);
   });
+
+  describe('idle', () => {
+    it('resolves when nothing is in flight', async () => {
+      await broker.idle();
+      assert.deepEqual(broker.getSent(), []);
+    });
+
+    it('awaits an async handler whose delivery the caller never awaited', async () => {
+      const driver = broker.createDriver();
+      const received: string[] = [];
+
+      const consumer = driver.createConsumer();
+      await consumer.subscribe({ topics: ['orders'] });
+      await consumer.run({
+        eachMessage: async payload => {
+          await new Promise(resolve => setTimeout(resolve, 10));
+          received.push(String(payload.message.value));
+        },
+      });
+
+      // Fire-and-forget: the send is deliberately not awaited, exactly like a
+      // service that publishes without blocking its caller.
+      void driver
+        .createProducer()
+        .send({ topic: 'orders', messages: [{ value: 'a' }] });
+      assert.deepEqual(received, [], 'the handler has not finished yet');
+
+      await broker.idle();
+      assert.deepEqual(received, ['a']);
+    });
+
+    it('follows a cascade where a handler triggers a further dispatch', async () => {
+      const driver = broker.createDriver();
+      const producer = driver.createProducer();
+      const audited: string[] = [];
+
+      // First hop: the orders handler produces an audit record it never awaits
+      // (the DLQ/audit pattern). Second hop: the audit handler is slow.
+      const ordersConsumer = driver.createConsumer();
+      await ordersConsumer.subscribe({ topics: ['orders'] });
+      await ordersConsumer.run({
+        eachMessage: async payload => {
+          await new Promise(resolve => setTimeout(resolve, 5));
+          void producer.send({
+            topic: 'audit',
+            messages: [{ value: `audit:${String(payload.message.value)}` }],
+          });
+        },
+      });
+
+      const auditConsumer = driver.createConsumer();
+      await auditConsumer.subscribe({ topics: ['audit'] });
+      await auditConsumer.run({
+        eachMessage: async payload => {
+          await new Promise(resolve => setTimeout(resolve, 5));
+          audited.push(String(payload.message.value));
+        },
+      });
+
+      // Nothing is awaited: the audit dispatch enters the broker only while
+      // idle() is already waiting on the first hop, so idle must loop — one
+      // settle pass over the orders delivery cannot see the work it spawned.
+      void producer.send({ topic: 'orders', messages: [{ value: 'o1' }] });
+      await broker.idle();
+
+      assert.deepEqual(audited, ['audit:o1']);
+      assert.deepEqual(broker.getSentTo('audit'), [{ value: 'audit:o1' }]);
+    });
+
+    it('resolves even when the in-flight handler throws', async () => {
+      const driver = broker.createDriver();
+
+      const consumer = driver.createConsumer();
+      await consumer.subscribe({ topics: ['orders'] });
+      await consumer.run({
+        eachMessage: async () => {
+          await new Promise(resolve => setTimeout(resolve, 5));
+          throw new Error('handler exploded');
+        },
+      });
+
+      void driver
+        .createProducer()
+        .send({ topic: 'orders', messages: [{ value: 'a' }] });
+
+      await assert.doesNotReject(broker.idle());
+    });
+  });
 });

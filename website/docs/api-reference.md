@@ -78,7 +78,7 @@ The driver is an advanced seam. Most applications never touch it directly.
 | Export | Kind | Notes |
 | --- | --- | --- |
 | `KafkaTestModule` | class | In-memory transport: `forRoot`, `forRootAsync`. |
-| `InMemoryKafkaBroker` | class | The loopback broker: `emit`, `getSent`, `getSentTo`. |
+| `InMemoryKafkaBroker` | class | The loopback broker: `emit`, `idle`, `getSent`, `getSentTo`. |
 | `KAFKA_TEST_BROKER` | symbol | Injection token for the broker. |
 | `InjectKafkaTestBroker` | decorator | Inject the broker. |
 | `createMockKafkaProducer` | function | Recording producer mock. |

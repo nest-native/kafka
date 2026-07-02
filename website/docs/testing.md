@@ -26,7 +26,9 @@ const broker = moduleRef.get<InMemoryKafkaBroker>(KAFKA_TEST_BROKER);
 
 // Inject a message straight to a consumer...
 await broker.emit('orders.placed', {value: JSON.stringify({id: '1'})});
-// ...or produce through a service and assert on what the broker recorded:
+// ...wait for every in-flight handler pipeline to settle (no sleeps)...
+await broker.idle();
+// ...and assert on what the broker recorded:
 expect(broker.getSentTo('orders.placed')).toHaveLength(1);
 
 await moduleRef.close();
@@ -42,11 +44,35 @@ the broker with the `KAFKA_TEST_BROKER` token or `@InjectKafkaTestBroker()`.
 `InMemoryKafkaBroker` is the loopback transport the test module runs on:
 
 - `emit(topic, message)` injects a consumed message into a subscribed consumer.
+- `idle()` resolves once every in-flight handler pipeline has settled.
 - `getSent()` / `getSentTo(topic)` return what producers wrote, for assertions.
 
 It exercises the same code paths as production — enhancers, error mapping, batch
 offsets, transactions, drain — so the behavior you assert in a test is the
 behavior you get against a broker.
+
+## Awaiting Handler Completion
+
+Awaiting `emit` (or a producer send) waits for the consumer pipelines that
+delivery runs directly. It does **not** wait for work a handler only *starts* —
+a fire-and-forget `producer.send(...)` publishing an audit or DLQ record, and
+whatever consumer handles *that*. `await broker.idle()` is the settle point for
+the whole chain: it keeps waiting until the broker is quiet, following cascades
+(a handler produces → another consumer handles → it produces again…) until no
+handler pipeline is in flight, and it resolves even when handlers throw (the
+error mapping has already decided commit-vs-retry by then):
+
+```ts
+await broker.emit('orders.placed', {value: JSON.stringify(order)});
+await broker.idle(); // every handler — and every cascade — has settled
+expect(broker.getSentTo('orders.audit')).toHaveLength(1); // no sleep needed
+```
+
+Prefer `emit` → `idle()` → assert over fixed sleeps: it is exact (no flaky
+too-short waits), fast (no padded too-long waits), and it does not stop
+consumption — the broker keeps delivering afterwards, so one test can settle and
+assert in phases. Work scheduled outside the dispatch chain (a bare
+`setTimeout` in a handler) is invisible to the broker and is not awaited.
 
 ## Producer Mocks
 

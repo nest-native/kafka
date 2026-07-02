@@ -325,7 +325,10 @@ const broker = moduleRef.get<InMemoryKafkaBroker>(KAFKA_TEST_BROKER);
 
 // Inject a message straight to a consumer...
 await broker.emit('orders.placed', { value: JSON.stringify({ id: '1' }) });
-// ...or produce through a service and assert on what the broker recorded:
+// ...wait for every in-flight handler pipeline to settle — including follow-up
+// messages handlers produced (audit/DLQ cascades) — instead of sleeping...
+await broker.idle();
+// ...and assert on what the broker recorded:
 expect(broker.getSentTo('orders.placed')).toHaveLength(1);
 
 await moduleRef.close();

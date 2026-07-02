@@ -67,6 +67,7 @@ export interface KafkaTestModuleAsyncOptions
  *
  * const broker = app.get<InMemoryKafkaBroker>(KAFKA_TEST_BROKER);
  * await app.get(OrdersService).placeOrder({ id: '1' });
+ * await broker.idle(); // every in-flight handler pipeline has settled
  * assert.equal(broker.getSentTo('orders.placed').length, 1);
  * ```
  *

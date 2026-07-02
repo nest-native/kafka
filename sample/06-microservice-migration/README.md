@@ -18,9 +18,10 @@ What it shows:
 - **`KafkaTestModule`.** `scripts/smoke.ts` swaps `KafkaModule` for
   `KafkaTestModule`, which runs the whole transport against an in-memory broker.
   It asserts the ported consumer handles a produced order, inspects what the
-  broker recorded with `broker.getSentTo(...)`, and injects a message straight to
-  the consumer with `broker.emit(...)` — no `@nestjs/testing`, no real Kafka, no
-  native `librdkafka`.
+  broker recorded with `broker.getSentTo(...)`, injects a message straight to
+  the consumer with `broker.emit(...)`, and settles every in-flight handler
+  pipeline with `broker.idle()` before asserting — no sleeps, no
+  `@nestjs/testing`, no real Kafka, no native `librdkafka`.
 
 The full field-by-field mapping lives in
 [`docs/migration-from-nestjs-microservices.md`](../../docs/migration-from-nestjs-microservices.md).
