@@ -49,7 +49,11 @@ async function smoke(): Promise<void> {
   assert.equal(producer.isConnected(), true);
 
   // 1. Producing through the migrated service reaches the ported consumer.
+  //    broker.idle() is the settle point: it resolves once every in-flight
+  //    handler pipeline (and anything a handler produced in turn) has finished,
+  //    so the assertions below never race an async handler — no sleeps.
   await app.get(OrdersService).placeOrder({ id: 'order-1', total: 4200 });
+  await broker.idle();
   assert.equal(inbox.handled.length, 1);
   assert.deepEqual(inbox.handled[0].order, { id: 'order-1', total: 4200 });
   assert.equal(inbox.handled[0].topic, OrdersService.topic);
@@ -62,9 +66,11 @@ async function smoke(): Promise<void> {
     },
   ]);
 
-  // 3. emit() injects a message straight to the consumer, no producer needed.
+  // 3. emit() injects a message straight to the consumer, no producer needed;
+  //    idle() again guarantees the handler pipeline has settled before asserting.
   const injected: OrderPlaced = { id: 'order-2', total: 1300 };
   await broker.emit(OrdersService.topic, { value: JSON.stringify(injected) });
+  await broker.idle();
   assert.equal(inbox.handled.length, 2);
   assert.deepEqual(inbox.handled[1].order, injected);
 

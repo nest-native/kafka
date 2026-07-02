@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { setTimeout as delay } from 'node:timers/promises';
 import { describe, it } from 'node:test';
 import {
   BadRequestException,
@@ -89,6 +90,42 @@ class SecuredConsumer {
 @Module({ providers: [TenantGuard, SecuredConsumer] })
 class SecuredModule {}
 
+/**
+ * The fire-and-forget cascade `broker.idle()` exists for: the orders handler
+ * produces an audit record it deliberately never awaits (as a real handler
+ * publishing an audit/DLQ record without blocking consumption would), and the
+ * slow audit consumer handles it well after the emit that started the chain has
+ * resolved.
+ */
+@Injectable()
+@KafkaConsumer('audited.orders', { groupId: 'audited-orders-test' })
+class AuditingOrdersConsumer {
+  constructor(private readonly producer: KafkaProducerService) {}
+
+  @KafkaHandler()
+  handle(@KafkaMessage() order: OrderPlaced): void {
+    void this.producer.send({
+      topic: 'orders.audit',
+      messages: [{ value: JSON.stringify({ audited: order.id }) }],
+    });
+  }
+}
+
+@Injectable()
+@KafkaConsumer('orders.audit', { groupId: 'audit-test' })
+class AuditConsumer {
+  readonly audited: string[] = [];
+
+  @KafkaHandler()
+  async handle(@KafkaMessage() entry: { audited: string }): Promise<void> {
+    await delay(10);
+    this.audited.push(entry.audited);
+  }
+}
+
+@Module({ providers: [AuditingOrdersConsumer, AuditConsumer] })
+class AuditedOrdersModule {}
+
 @Injectable()
 class ConfigService {
   readonly clientId = 'async-test';
@@ -140,6 +177,31 @@ describe('KafkaTestModule', () => {
     await broker.emit('orders.placed', { value: JSON.stringify({ id: 'order-2' }) });
 
     assert.deepEqual(log.seen[0].order, { id: 'order-2' });
+
+    await app.close();
+  });
+
+  it('settles a fire-and-forget handler cascade through broker.idle()', async () => {
+    const app = await bootstrap([
+      KafkaTestModule.forRoot(),
+      AuditedOrdersModule,
+    ]);
+
+    const broker = app.get<InMemoryKafkaBroker>(KAFKA_TEST_BROKER);
+    const audit = app.get<AuditConsumer>(AuditConsumer);
+
+    await broker.emit('audited.orders', {
+      value: JSON.stringify({ id: 'order-9' }),
+    });
+    // emit resolved once the orders pipeline settled, but the audit produce it
+    // fired was never awaited — the slow audit handler is still running.
+    assert.deepEqual(audit.audited, []);
+
+    await broker.idle();
+    assert.deepEqual(audit.audited, ['order-9']);
+    assert.deepEqual(broker.getSentTo('orders.audit'), [
+      { value: JSON.stringify({ audited: 'order-9' }) },
+    ]);
 
     await app.close();
   });

@@ -8,6 +8,22 @@ package release is useful for users.
 
 ## Unreleased
 
+## 0.3.0 - 2026-07-01
+
+### Added
+
+- **`InMemoryKafkaBroker.idle()`** — an awaitable settle point for tests. It
+  resolves once every in-flight `@KafkaHandler` pipeline has settled, looping
+  until the broker is quiet so cascaded dispatches are included (a handler
+  fire-and-forgets an audit/DLQ produce, another consumer handles it, and so
+  on down the chain). Tests using `KafkaTestModule` can replace fixed sleeps
+  after `broker.emit(...)` / a producer send with `await broker.idle()`: it is
+  exact, it resolves even when handlers throw (error mapping has already
+  decided commit-vs-retry), and it does not stop consumption. Work a handler
+  schedules outside the dispatch chain (a bare `setTimeout`) remains invisible
+  to the broker. The production path is untouched — tracking lives entirely in
+  the in-memory broker.
+
 ## 0.2.0 - 2026-06-23
 
 ### Changed
