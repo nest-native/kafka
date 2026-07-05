@@ -1,0 +1,51 @@
+# Optional local infrastructure for the gated real-broker integration suite.
+# Nothing in the default `npm test` path or CI needs this — forks work without
+# Docker. See GUIDELINES_NEST_KAFKA.md, "Local Full-Mode Verification".
+#
+#   npm run infra:up     start + wait for health (a fresh broker takes ~10-30s)
+#   npm run test:full    unit suite + the real-broker integration suite
+#   npm run infra:down   remove containers and volumes
+services:
+  kafka:
+    image: apache/kafka:3.8.1
+    container_name: nest-kafka-broker
+    environment:
+      KAFKA_NODE_ID: 1
+      KAFKA_PROCESS_ROLES: broker,controller
+      # Two data listeners on purpose:
+      #  - PLAINTEXT (in-container 9092, mapped to host 19094) is what host
+      #    clients use. Clients bootstrap through the mapped port and are told
+      #    the advertised address back, so it must be the host-visible
+      #    `localhost:19094` — not the in-container 9092.
+      #  - INTERNAL (9094) is the inter-broker listener. Broker self-traffic
+      #    (e.g. WriteTxnMarkers for transactions) dials the advertised
+      #    inter-broker address, which must stay reachable *inside* the
+      #    container — advertising only `localhost:19094` breaks the
+      #    transactional path even on a single node.
+      KAFKA_LISTENERS: 'PLAINTEXT://0.0.0.0:9092,CONTROLLER://0.0.0.0:9093,INTERNAL://0.0.0.0:9094'
+      KAFKA_ADVERTISED_LISTENERS: 'PLAINTEXT://localhost:19094,INTERNAL://localhost:9094'
+      KAFKA_INTER_BROKER_LISTENER_NAME: INTERNAL
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: 'CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT,INTERNAL:PLAINTEXT'
+      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@localhost:9093
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: 'true'
+      CLUSTER_ID: 5L6g3nShT-eMCtK--X86sw
+    ports:
+      - '127.0.0.1:19094:9092'
+    healthcheck:
+      # Full metadata round-trip through the INTERNAL listener (its advertised
+      # address is reachable in-container; PLAINTEXT's `localhost:19094` is
+      # not, so metadata-following CLIs must not bootstrap via 9092 here).
+      test:
+        [
+          'CMD-SHELL',
+          '/opt/kafka/bin/kafka-topics.sh --bootstrap-server localhost:9094 --list >/dev/null 2>&1',
+        ]
+      interval: 5s
+      timeout: 15s
+      retries: 30
+      start_period: 10s
