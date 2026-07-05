@@ -210,6 +210,20 @@ Run the local gate with:
 npm run ci
 ```
 
+Two **optional, local-only** layers sit on top (neither runs in CI, and forks
+work without them):
+
+- **Full mode** — `npm run infra:up && npm run test:full` runs the gated
+  real-broker integration suite against a disposable single-node KRaft Kafka
+  (`compose.yaml`, host port `127.0.0.1:19094`); `npm run infra:down` cleans
+  up.
+- **Mutation testing** — `npm run test:mutation` (incremental Stryker run;
+  `test:mutation:full` re-tests everything). Scope with `STRYKER_MUTATE`,
+  include the real-broker suite with `STRYKER_WITH_INFRA=1`.
+
+Details — including the pre-PR ritual and agent instructions — in
+[GUIDELINES_NEST_KAFKA.md](GUIDELINES_NEST_KAFKA.md#local-full-mode-verification-optional-infra--mutation-testing).
+
 ## Initial release scope (0.x)
 
 The initial `0.x` release covers:

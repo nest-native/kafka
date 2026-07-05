@@ -8,6 +8,16 @@ package release is useful for users.
 
 ## Unreleased
 
+- Local full-mode verification and mutation testing (repo tooling; nothing
+  ships in the package): `compose.yaml` + `npm run infra:up`/`infra:down`
+  start a disposable single-node KRaft Kafka on `127.0.0.1:19094`,
+  `npm run test:full` runs the gated real-broker integration suite against
+  it, and Stryker mutation testing is available via `npm run test:mutation`
+  (incremental) / `test:mutation:full` with `STRYKER_MUTATE` scoping and
+  `STRYKER_WITH_INFRA=1` for broker-inclusive runs. All of it is opt-in and
+  local-only — CI is unchanged and Docker-free. See the new "Local Full-Mode
+  Verification" section in GUIDELINES_NEST_KAFKA.md.
+
 ## 0.3.0 - 2026-07-01
 
 ### Added

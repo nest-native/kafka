@@ -30,7 +30,15 @@
     "sample:focused": "node scripts/run-focused-samples.mjs",
     "sample": "npm run showcase && npm run sample:focused",
     "ci:sample": "npm run sample",
-    "ci": "npm run typecheck && npm run test:cov && npm run complexity:check && npm run complexity:report && npm run release:check && npm run ci:docs && npm run security:audit && npm run ci:sample"
+    "ci": "npm run typecheck && npm run test:cov && npm run complexity:check && npm run complexity:report && npm run release:check && npm run ci:docs && npm run security:audit && npm run ci:sample",
+    "infra:up": "docker compose up -d --wait",
+    "infra:down": "docker compose down -v",
+    "test:full": "npm run test && KAFKA_BROKERS=localhost:19094 npm run test:integration",
+    "test:mutation": "stryker run",
+    "test:mutation:full": "stryker run --force",
+    "test:mutant": "TS_NODE_PROJECT=tsconfig.spec.json node --require ts-node/register --require reflect-metadata --test --test-force-exit packages/kafka/test/*.spec.ts",
+    "test:integration:mutant": "TS_NODE_PROJECT=tsconfig.spec.json node --require ts-node/register --require reflect-metadata --test --test-force-exit packages/kafka/test/kafka.integration.spec.ts",
+    "test:mutant:full": "npm run test:mutant && KAFKA_BROKERS=localhost:19094 npm run test:integration:mutant"
   },
   "engines": {
     "node": ">=20"
@@ -43,6 +51,7 @@
     "@nestjs/core": "^11.1.27",
     "@nestjs/microservices": "^11.1.27",
     "@nestjs/testing": "^11.1.27",
+    "@stryker-mutator/core": "^9.6.1",
     "@types/node": "^26.0.1",
     "@typescript-eslint/parser": "^8.61.1",
     "c8": "^11.0.0",

@@ -193,3 +193,55 @@ deliver on Confluent's officially supported client, never hide Kafka semantics.
 (Empty at v0; grows as the project lands decisions worth preserving. Append
 entries here when an architectural call repeats or is non-obvious. Each
 entry should be one short paragraph with rationale.)
+
+## Local Full-Mode Verification (optional infra + mutation testing)
+
+Everything in this section is **opt-in and local-only**. Plain `npm test` and
+CI's unit path run without Docker against the in-memory broker; forks work out
+of the box. **CI never runs mutation testing** — it is an on-demand,
+local-only gate.
+
+### Gated integration suite (real KRaft Kafka)
+
+- `npm run infra:up` — a disposable single-node KRaft broker from
+  `compose.yaml` (`apache/kafka`, host port `127.0.0.1:19094`). Needs Docker.
+  A fresh broker takes ~10-30 seconds to become healthy; `infra:up` waits on
+  the container healthcheck before returning.
+- `npm run test:full` — the unit suite first (in-memory broker, no env vars),
+  then the real-broker integration suite with `KAFKA_BROKERS=localhost:19094`
+  set on the integration half only. The integration spec proves what the
+  in-memory broker cannot: a real produce → consume round-trip, a real
+  transactional commit, and per-topic concurrency plus offset-commit
+  durability.
+- `npm run infra:down` — removes the container and volumes.
+- The integration suite gates purely on `KAFKA_BROKERS`: point it at your own
+  broker and run `npm run test:integration` instead.
+- It needs the optional Confluent client installed once per checkout:
+  `npm i --no-save "@confluentinc/kafka-javascript@^1.9"` — `--no-save`
+  because it is an optional peer and must never land in `package.json` or the
+  lockfile.
+
+**AI agents working on this repo**: when Docker is available, run
+`npm run infra:up && npm run test:full` before opening a PR that touches
+package source, and report the result (including the integration suite) in
+the PR body. When Docker is not available, run `npm test` and state that the
+integration suite was skipped. Never wire any of this into CI.
+
+### Mutation testing (Stryker — local only, never in CI)
+
+- `npm run test:mutation` — **incremental** run (cache:
+  `reports/stryker-incremental.json`; only re-tests what changed). This is the
+  pre-PR ritual for changes to package source.
+- `npm run test:mutation:full` — every mutant from scratch (`--force`).
+- `STRYKER_MUTATE='packages/kafka/kafka-dispatcher.ts,packages/kafka/kafka-backpressure.ts'`
+  — comma-separated globs to scope a run to the files a change touched.
+- `STRYKER_WITH_INFRA=1` — each mutant also runs the real-broker integration
+  suite (`npm run test:mutant:full` per mutant, concurrency forced to 1
+  because the specs share the one broker; run `npm run infra:up` first). Slow
+  by design; use it when a change touches driver/broker-adjacent code.
+- Report: `reports/mutation/mutation.html`. Thresholds are advisory
+  (`break: null`) — the signal is *which mutants survive*, not the score.
+
+Pre-PR ritual: run `npm run test:mutation` (scope with `STRYKER_MUTATE` when
+the change is small), look at surviving mutants, and mention the outcome in
+the PR body. Keep CI fast and Docker-free — that is a deliberate contract.
