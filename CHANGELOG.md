@@ -8,6 +8,12 @@ package release is useful for users.
 
 ## Unreleased
 
+- Tests: closed a mutation-testing gap in `defaultKafkaErrorMapper` — added a
+  sub-4xx `HttpException` case proving only the 4xx band commits (everything
+  else, including sub-400, is retried). Documented the one genuine equivalent
+  mutant in `deserializeKafkaValue` (the `value === null` tombstone fast-path
+  is redundant because `JSON.parse(null)` is `null`) with an inline
+  Stryker-disable. No behavior or API change.
 - Local full-mode verification and mutation testing (repo tooling; nothing
   ships in the package): `compose.yaml` + `npm run infra:up`/`infra:down`
   start a disposable single-node KRaft Kafka on `127.0.0.1:19094`,

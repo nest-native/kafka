@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import {
   BadRequestException,
+  HttpException,
   InternalServerErrorException,
 } from '@nestjs/common';
 import {
@@ -24,6 +25,16 @@ describe('defaultKafkaErrorMapper', () => {
   it('retries a 5xx HttpException (transient server error)', () => {
     assert.equal(
       defaultKafkaErrorMapper(new InternalServerErrorException('boom'), context),
+      'retry',
+    );
+  });
+
+  it('retries a sub-4xx HttpException — only 4xx commits, the rest are transient', () => {
+    // HttpException can carry any status; the mapper commits ONLY the 4xx band,
+    // so a sub-400 status (e.g. a stray 3xx) is transient and retried. This
+    // exercises the lower `status >= 400` bound of the commit window.
+    assert.equal(
+      defaultKafkaErrorMapper(new HttpException('below 4xx', 399), context),
       'retry',
     );
   });
