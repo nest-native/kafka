@@ -13,6 +13,10 @@ import { KafkaIncomingMessage } from './kafka-context';
 export function deserializeKafkaValue(
   value: KafkaIncomingMessage['value'],
 ): unknown {
+  // Stryker disable next-line ConditionalExpression: JSON.parse(null) also
+  // returns null, so removing this tombstone fast-path (the `=> false` variant)
+  // is behaviorally identical — a genuine equivalent mutant. The `=> true`
+  // variant is killed by any non-null decode test. Kept for clarity of intent.
   if (value === null) {
     return null;
   }
