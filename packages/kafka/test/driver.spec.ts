@@ -91,7 +91,9 @@ describe('createConfluentDriver', () => {
   });
 
   it('throws a descriptive error when the optional peer is not installed', () => {
-    const cause = new Error('Cannot find module');
+    const cause = Object.assign(new Error('Cannot find module'), {
+      code: 'MODULE_NOT_FOUND',
+    });
     stubConfluentModule(() => {
       throw cause;
     });
@@ -101,8 +103,60 @@ describe('createConfluentDriver', () => {
       (error: unknown) => {
         assert.ok(error instanceof Error);
         assert.match(error.message, /@confluentinc\/kafka-javascript/);
+        assert.match(error.message, /is not installed/);
         assert.match(error.message, /driverFactory/);
         assert.equal((error as { cause?: unknown }).cause, cause);
+        return true;
+      },
+    );
+  });
+
+  // The driver is a native addon: a binary built for another Node.js major
+  // throws ERR_DLOPEN_FAILED even though the package IS installed. Reporting
+  // that as "not installed" sends people hunting a dependency problem they do
+  // not have, so the two cases must read differently.
+  it('reports a native-binary load failure as installed-but-broken, not missing', () => {
+    const cause = Object.assign(
+      new Error(
+        "The module '/app/node_modules/@confluentinc/kafka-javascript/build/Release/confluent-kafka-javascript.node'\nwas compiled against a different Node.js version using\nNODE_MODULE_VERSION 127.",
+      ),
+      { code: 'ERR_DLOPEN_FAILED' },
+    );
+    stubConfluentModule(() => {
+      throw cause;
+    });
+
+    assert.throws(
+      () => createConfluentDriver({ brokers: [] }, {}),
+      (error: unknown) => {
+        assert.ok(error instanceof Error);
+        assert.match(error.message, /installed but failed to load/);
+        assert.doesNotMatch(error.message, /is not installed/);
+        // The first line of the underlying error is quoted, so the reader sees
+        // the actual dlopen complaint without the multi-line noise.
+        assert.match(error.message, /compiled against a different Node/);
+        // The whole cause is kept (newlines collapsed) — the diagnosis lives
+        // after the first line, so truncating there would hide it.
+        assert.match(error.message, /NODE_MODULE_VERSION 127/);
+        assert.doesNotMatch(error.message, /\n/);
+        assert.match(error.message, /npm rebuild/);
+        assert.match(error.message, /driverFactory/);
+        assert.equal((error as { cause?: unknown }).cause, cause);
+        return true;
+      },
+    );
+  });
+
+  it('describes a non-Error throw without assuming it is missing', () => {
+    stubConfluentModule(() => {
+      throw 'boom';
+    });
+
+    assert.throws(
+      () => createConfluentDriver({ brokers: [] }, {}),
+      (error: unknown) => {
+        assert.ok(error instanceof Error);
+        assert.match(error.message, /installed but failed to load: boom/);
         return true;
       },
     );

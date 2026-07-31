@@ -8,6 +8,17 @@ package release is useful for users.
 
 ## Unreleased
 
+- Fixed a misleading error when the optional `@confluentinc/kafka-javascript`
+  peer fails to load. It is a **native addon**, so a binary built for another
+  Node.js major throws `ERR_DLOPEN_FAILED` even though the package is installed
+  — and the driver reported every load failure as "is not installed", sending
+  people to hunt a dependency problem they did not have. The two cases now read
+  differently: a genuine `MODULE_NOT_FOUND` still says "not installed", while
+  anything else says "installed but failed to load", quotes the underlying
+  error (newlines collapsed, so the `NODE_MODULE_VERSION` diagnosis survives),
+  and suggests rebuilding. The original error is still attached as `cause` in
+  both cases.
+
 - Tests: closed a mutation-testing gap in `defaultKafkaErrorMapper` — added a
   sub-4xx `HttpException` case proving only the 4xx band commits (everything
   else, including sub-400, is retried). Documented the one genuine equivalent
