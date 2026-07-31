@@ -381,12 +381,55 @@ function loadConfluentModule(): ConfluentKafkaModule {
   try {
     return require('@confluentinc/kafka-javascript') as ConfluentKafkaModule;
   } catch (cause) {
-    const error = new Error(
-      'The optional peer "@confluentinc/kafka-javascript" is not installed. ' +
-        'Install it to open a real Kafka connection, or supply a custom ' +
-        '"driverFactory" through KafkaModule.forRoot for tests.',
-    );
+    const error = new Error(describeConfluentLoadFailure(cause));
     (error as { cause?: unknown }).cause = cause;
     throw error;
   }
+}
+
+/**
+ * The driver is a **native addon**, so "require failed" has two very different
+ * meanings and only one of them is "you forgot to install it". A binary built
+ * for another Node.js major fails with `ERR_DLOPEN_FAILED` even though the
+ * package is right there in `node_modules` — reporting that as "not installed"
+ * sends people looking for a dependency problem they do not have. The
+ * underlying error is always attached as `cause`; this only decides which
+ * remedy the message leads with.
+ */
+function describeConfluentLoadFailure(cause: unknown): string {
+  const suffix =
+    'Alternatively, supply a custom "driverFactory" through ' +
+    'KafkaModule.forRoot for tests.';
+  if (isModuleNotFound(cause)) {
+    return (
+      'The optional peer "@confluentinc/kafka-javascript" is not installed. ' +
+      `Install it to open a real Kafka connection. ${suffix}`
+    );
+  }
+
+  // Collapse rather than truncate: Node's dlopen error puts the file path on
+  // line 1 and the actual diagnosis ("compiled against a different Node.js
+  // version using NODE_MODULE_VERSION …") on the lines after it, so keeping
+  // only the first line would drop the part that explains the failure.
+  const raw = cause instanceof Error ? cause.message : String(cause);
+  const detail = raw.replace(/\s+/g, ' ').trim();
+  return (
+    'The optional peer "@confluentinc/kafka-javascript" is installed but ' +
+    'failed to load: ' +
+    detail +
+    ' — it ships a native binary, so this usually means the binary was ' +
+    'built for a different Node.js version. Reinstall or rebuild it (for ' +
+    'example: npm rebuild @confluentinc/kafka-javascript ' +
+    '--build-from-source). ' +
+    suffix
+  );
+}
+
+function isModuleNotFound(cause: unknown): boolean {
+  return (
+    typeof cause === 'object' &&
+    cause !== null &&
+    'code' in cause &&
+    (cause as { code?: unknown }).code === 'MODULE_NOT_FOUND'
+  );
 }
