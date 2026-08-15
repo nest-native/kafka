@@ -8,6 +8,18 @@ package release is useful for users.
 
 ## Unreleased
 
+- Docs: the version literals in prose told the wrong story — both READMEs
+  announced `Status: 0.1.1`, `CONTRIBUTING.md` said the package was published at
+  `0.1.x`, and the release guide still described the `0.1.0` release, while npm
+  had `0.3.0`. All of them now state the published version, and the release guide
+  summarizes what each release since `0.1.0` added. A new release gate,
+  `npm run release:check:readme-version` (`scripts/check-readme-version.mjs`,
+  wired into `release:check`), fails on any future drift: it reads the version
+  from every non-private `packages/*/package.json`, checks the README `Status:`
+  literals and the `CONTRIBUTING.md` release line against it, and rejects
+  hardcoded `img.shields.io/badge/version-…` badges so version badges stay
+  dynamic.
+
 - Fixed a misleading error when the optional `@confluentinc/kafka-javascript`
   peer fails to load. It is a **native addon**, so a binary built for another
   Node.js major throws `ERR_DLOPEN_FAILED` even though the package is installed
