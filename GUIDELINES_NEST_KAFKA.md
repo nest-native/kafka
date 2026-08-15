@@ -189,6 +189,23 @@ deliver on Confluent's officially supported client, never hide Kafka semantics.
 - Regenerate `package-lock.json`. Run `npm run release:check`. Run
   `npm run ci`.
 - Post-publish: re-run full CI with samples pinned to the published version.
+- **Prose version literals are release-blocking too.** The bolded `Status:` line
+  in `README.md` and `packages/kafka/README.md`, the published release line in
+  `CONTRIBUTING.md`, badges, and any compatibility table must state the version
+  that is actually published. A stale literal is a documentation lie, not a
+  cosmetic nit: it is the first thing a user reads and it silently contradicts
+  npm. `release:check:readme-version`
+  (`scripts/check-readme-version.mjs`) enforces this and fails the gate on drift.
+- **Prefer dynamic badges over hardcoded ones.** Version and status badges must be
+  generated (`img.shields.io/npm/v/@nest-native/kafka.svg`), never hand-written —
+  a hardcoded badge is drift waiting to happen. `release:check:readme-version`
+  rejects `img.shields.io/badge/version-…` and `img.shields.io/badge/status-…`
+  literals outright.
+- **Version-sync checks iterate, they do not hardcode.** Any check in `scripts/`
+  that reasons about the published version must enumerate every non-private
+  `packages/*/package.json` and read the version from there, rather than hardcoding
+  a package name or a version string. The repo ships one package today; a check
+  written to that assumption goes quietly blind the day a second one lands.
 
 ### 11. Cognitive Complexity Review
 

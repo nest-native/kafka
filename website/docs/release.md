@@ -10,12 +10,18 @@ bumping `packages/kafka/package.json`:
 
 1. Update every `sample/*/package.json` entry for `@nest-native/kafka` to the new
    version in the same change.
-2. Regenerate `package-lock.json`.
-3. Run `npm run release:check`.
-4. Run `npm run ci`.
+2. Update the version literals in prose — the **Status** line in `README.md` and
+   `packages/kafka/README.md`, the published release line in `CONTRIBUTING.md`,
+   and this page.
+3. Regenerate `package-lock.json`.
+4. Run `npm run release:check`.
+5. Run `npm run ci`.
 
-`release:check` validates README links, sample-version sync, and the package
-tarball, so a drifted version fails the gate before it can be published.
+`release:check` validates README links, README/CONTRIBUTING version literals,
+sample-version sync, and the package tarball, so a drifted version fails the gate
+before it can be published. Version badges must stay dynamic
+(`img.shields.io/npm/v/...`) — `release:check:readme-version` rejects hardcoded
+`img.shields.io/badge/version-…` and `badge/status-…` badges outright.
 
 ## Release Steps
 
@@ -23,15 +29,30 @@ tarball, so a drifted version fails the gate before it can be published.
 2. Bump `packages/kafka/package.json` and the sample versions together.
 3. Update `CHANGELOG.md`: move the `Unreleased` entries under the new version.
 4. Run `npm run ci` and confirm green on Node 20 and 22.
-5. Tag the release (for `0.1.0`, a lightweight `v0.1.0` tag on `main`).
+5. Tag the release (for `0.3.0`, a lightweight `v0.3.0` tag on `main`).
 
-## The 0.1.0 Release
+## The 0.x Release Line
 
-The first published version is `0.1.0`. The initial `0.x` release covers the module,
-the producer service, consumer decorators with the full enhancer pipeline, the
+The current published version is `0.3.0`. The `0.x` line covers the module, the
+producer service, consumer decorators with the full enhancer pipeline, the
 parameter decorators, error mapping, batch consumption with per-topic concurrency,
-the transactional producer, `KafkaTestModule`, the migration guide, and this
+the transactional producer, the testing utilities, the migration guide, and this
 documentation site.
+
+What each release since `0.1.0` added:
+
+- `0.1.1` — a real-broker CI integration suite gated on `KAFKA_BROKERS`, plus a
+  documentation-truth pass. No public API changes.
+- `0.2.0` — **breaking (testing entrypoint)**: `KafkaTestModule`,
+  `InMemoryKafkaBroker`, `createMockKafkaProducer`/`createMockTransaction`,
+  `InjectKafkaTestBroker`, and `KAFKA_TEST_BROKER` moved out of the package root
+  into `@nest-native/kafka/testing`. Runtime exports are unchanged.
+- `0.3.0` — `InMemoryKafkaBroker.idle()`, an awaitable settle point that replaces
+  fixed sleeps in tests built on `KafkaTestModule`.
+
+Per semver, `0.x` minor releases can include breaking changes — pin a version. See
+the [support policy](support-policy.md). `CHANGELOG.md` is the authoritative
+per-release record.
 
 ## Tarball Contract
 
