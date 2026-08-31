@@ -26,6 +26,12 @@ package release is useful for users.
   it is the one undotted name the KafkaJS layer also accepts, and routing it
   would break configuration that works today.
 
+- **The drift guard now actually runs in CI.** It skips wherever the optional
+  Confluent peer is absent, which is every job except the integration one — so
+  as first written it was a gate in name only. The integration job, the one
+  place the peer is installed, now runs it as its own step
+  (`npm run test:peer-drift`).
+
 - **Docs no longer overclaim.** The resilience page said any `librdkafka`
   property could be set, which was untrue for exactly the properties above. It
   now describes what is actually routed and how the list is kept honest.
