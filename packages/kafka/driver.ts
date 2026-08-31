@@ -223,6 +223,16 @@ export type KafkaEachBatchHandler = (
  */
 export interface KafkaSubscription {
   topics: string[];
+
+  /**
+   * @deprecated Not usable with the client this driver models. `kafkajs`
+   * accepted `fromBeginning` here; Confluent's compatibility layer rejects it as
+   * a subscribe option (`ERR__INVALID_ARG`) and reads it only at consumer
+   * creation. Set it in the consumer configuration instead — for request-reply
+   * that is `requestReply.consumer`, and for handler consumers the driver
+   * factory's consumer config. The field is kept so the type still mirrors the
+   * KafkaJS surface, and so this note has somewhere to live.
+   */
   fromBeginning?: boolean;
 }
 

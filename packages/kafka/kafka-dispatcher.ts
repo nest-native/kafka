@@ -18,13 +18,21 @@ import {
 } from './kafka-error-mapping';
 import { KafkaHandlerInvocation } from './kafka-context-creator';
 import { deserializeKafkaValue } from './kafka-message-codec';
+import { KafkaReplyPublisher } from './kafka-reply-publisher';
+import { KafkaReplyOutcome } from './kafka-request-reply.protocol';
 
 /**
  * One discovered handler reduced to what the dispatcher needs: the runner that
- * drives the Nest enhancer pipeline for one message (or batch).
+ * drives the Nest enhancer pipeline for one message (or batch), and whether the
+ * handler answers its requests.
  */
 export interface DispatchHandler {
   run: (invocation: KafkaHandlerInvocation) => Promise<unknown>;
+  /**
+   * `true` for a `reply: true` handler. Guaranteed false for batch handlers —
+   * the combination is rejected at bootstrap.
+   */
+  reply: boolean;
 }
 
 /**
@@ -58,6 +66,7 @@ export class KafkaDispatcher {
     private readonly routes: Map<string, DispatchHandler[]>,
     private readonly errorMapper: KafkaErrorMapper,
     maxInFlight: number,
+    private readonly replier: KafkaReplyPublisher,
   ) {
     this.backpressure = createBackpressure(maxInFlight);
   }
@@ -129,14 +138,52 @@ export class KafkaDispatcher {
     invocation: KafkaHandlerInvocation,
   ): Promise<void> {
     for (const handler of matched) {
-      try {
-        await handler.run(invocation);
-      } catch (error) {
-        // The handler's `@UseFilters` pipeline already ran; an error here means
-        // no filter handled it. Map it to commit-or-retry instead of letting it
-        // swallow silently (`nestjs/nest#9679`) or crash the consumer.
-        applyKafkaErrorBehavior(error, invocation.context, this.errorMapper);
-      }
+      const outcome = await this.invokeHandler(handler, invocation);
+      await this.publishReply(handler, invocation, outcome);
+    }
+  }
+
+  /**
+   * Run one handler and reduce it to a reply outcome.
+   *
+   * A `'retry'`-mapped failure throws out of here, which is what leaves the
+   * offset uncommitted and stops the loop — so no reply is produced for work
+   * the broker is about to redeliver. A `'commit'`-mapped failure is a final
+   * answer, and becomes an error reply for handlers that reply.
+   */
+  private async invokeHandler(
+    handler: DispatchHandler,
+    invocation: KafkaHandlerInvocation,
+  ): Promise<KafkaReplyOutcome> {
+    try {
+      return { status: 'value', value: await handler.run(invocation) };
+    } catch (error) {
+      // The handler's `@UseFilters` pipeline already ran; an error here means
+      // no filter handled it. Map it to commit-or-retry instead of letting it
+      // swallow silently (`nestjs/nest#9679`) or crash the consumer.
+      applyKafkaErrorBehavior(error, invocation.context, this.errorMapper);
+      return { status: 'error', error };
+    }
+  }
+
+  private async publishReply(
+    handler: DispatchHandler,
+    invocation: KafkaHandlerInvocation,
+    outcome: KafkaReplyOutcome,
+  ): Promise<void> {
+    if (!handler.reply) {
+      return;
+    }
+    try {
+      // `reply: true` and `batch: true` are mutually exclusive (rejected at
+      // bootstrap), so a replying handler always runs on the per-message path
+      // and its context is a `KafkaContext`.
+      await this.replier.publish(invocation.context as KafkaContext, outcome);
+    } catch (error) {
+      // An unsent reply is unprocessed work from the requester's point of view,
+      // so it goes through the same mapper as any other failure — redelivery by
+      // default, another chance to answer inside the timeout window.
+      applyKafkaErrorBehavior(error, invocation.context, this.errorMapper);
     }
   }
 

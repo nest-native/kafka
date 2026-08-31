@@ -60,3 +60,13 @@ Porting a `@nestjs/microservices` Kafka handler to `@nest-native/kafka` and
 testing it with `KafkaTestModule` and its in-memory broker.
 
 Related docs: [Migration Guide](../migration.md), [Testing](../testing.md).
+
+## `07-request-reply`
+
+The opt-in request-reply bridge: `@KafkaHandler(topic, { reply: true })`
+answering `KafkaRequestReplyService.request()`, the error reply a `'commit'`
+mapping produces, what a timeout means, and fire-and-forget handlers left
+untouched on the same consumer class.
+
+Related docs: [Request-Reply](../request-reply.md),
+[Migration Guide](../migration.md).

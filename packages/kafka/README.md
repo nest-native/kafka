@@ -355,6 +355,51 @@ expect(calls.send).toHaveLength(1);
 For low-level control, `KafkaModule.forRoot({ driverFactory })` still accepts any
 custom driver factory.
 
+### Request-reply (`@MessagePattern`), opt-in
+
+`@KafkaHandler` is fire-and-forget by default and Kafka stays the event log it
+is. For teams migrating off `@MessagePattern` / `ClientKafka.send()`, request-
+reply ships as an **opt-in bridge** — the one piece that is genuinely unsafe to
+hand-roll, because a reply has to reach the *instance* that asked, across
+rebalances, restarts, and N replicas.
+
+Answer requests with a flag on the handler; this side needs no module
+configuration at all, because a replier learns where to answer from the
+request's own headers:
+
+```ts
+@KafkaHandler('orders.total', { reply: true })
+async total(@KafkaMessage() query: TotalQuery): Promise<TotalResult> {
+  return this.orders.total(query.customerId); // this becomes the reply
+}
+```
+
+Issue requests by configuring a reply topic you provision yourself — that
+configuration *is* the opt-in:
+
+```ts
+KafkaModule.forRoot({
+  client: { brokers: ['localhost:9092'] },
+  requestReply: { replyTopic: 'orders-api.replies' },
+});
+
+const reply = await this.requests.request<TotalResult>({
+  topic: 'orders.total',
+  message: { value: JSON.stringify({ customerId }) },
+});
+```
+
+The default header keys are `@nestjs/microservices`' own, so a partially
+migrated fleet interoperates **in both directions** with no configuration on
+either side — pinned by contract tests against a real `ServerKafka` and a real
+`ClientKafka` on a real broker.
+
+Read the costs before adopting it: the reply path is **at-most-once**, a timeout
+means the outcome is **unknown** rather than "it did not happen", and routing
+every reply to every instance costs N-times fan-out (10 replicas x 200
+replies/s x 1 KiB is roughly 2 MiB/s of redundant broker egress). At volumes
+where that hurts, a Kafka round trip is the wrong tool and the docs say so.
+
 ### Migrating from `@nestjs/microservices` Kafka
 
 Porting an app off the official Kafka transport is mostly a mechanical rename
@@ -362,7 +407,9 @@ Porting an app off the official Kafka transport is mostly a mechanical rename
 `@KafkaMessage()`), plus a few behavioural deltas (explicit serialization,
 exception mapping, the Confluent `sendOffsets` shape). The full field-by-field
 guide is in [docs/migration-from-nestjs-microservices.md](../../docs/migration-from-nestjs-microservices.md),
-validated end-to-end by `sample/06-microservice-migration`.
+validated end-to-end by `sample/06-microservice-migration`, and `@MessagePattern`
+handlers port through the request-reply bridge above
+(`sample/07-request-reply`).
 
 ## Links
 

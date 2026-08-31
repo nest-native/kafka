@@ -8,6 +8,7 @@ import {
 } from './driver';
 import { KafkaProducerService } from './kafka-producer.service';
 import { KafkaConsumerExplorer } from './kafka-consumer.explorer';
+import { KafkaRequestReplyService } from './kafka-request-reply.service';
 import { KafkaModuleAsyncOptions, KafkaModuleOptions } from './interfaces';
 import {
   KAFKA_CLIENT_DRIVER,
@@ -108,6 +109,10 @@ export class KafkaModule {
       },
       KafkaProducerService,
       KafkaConsumerExplorer,
+      // Always registered, never ambient: without a `requestReply` block the
+      // service starts no consumer and touches no topic, so an application that
+      // did not opt in pays nothing for it being injectable.
+      KafkaRequestReplyService,
     ];
   }
 
@@ -117,6 +122,7 @@ export class KafkaModule {
       KAFKA_CLIENT_DRIVER,
       KAFKA_PRODUCER,
       KafkaProducerService,
+      KafkaRequestReplyService,
     ];
   }
 

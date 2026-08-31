@@ -61,6 +61,17 @@ function recordingDriver(): {
   return { driver, configs, trigger };
 }
 
+/**
+ * The explorer only reaches the producer to publish replies, and none of these
+ * handlers reply, so a stub that would fail loudly if it were ever used is the
+ * honest collaborator here.
+ */
+function stubProducer(): never {
+  return {
+    send: () => Promise.reject(new Error('no reply expected')),
+  } as never;
+}
+
 function buildExplorer(
   instance: object,
   driver: KafkaClientDriver,
@@ -78,6 +89,7 @@ function buildExplorer(
     { resolve: async () => instance } as never,
     driver,
     {},
+    stubProducer(),
   );
 }
 
@@ -130,6 +142,7 @@ describe('KafkaConsumerExplorer (unit)', () => {
       { resolve: async () => ({}) } as never,
       driver,
       {},
+      stubProducer(),
     );
 
     await explorer.onApplicationBootstrap();

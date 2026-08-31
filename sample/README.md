@@ -25,6 +25,10 @@ Current samples:
 - `06-microservice-migration` — porting a `@nestjs/microservices` Kafka handler
   to `@nest-native/kafka` and testing it with `KafkaTestModule` and its in-memory
   broker (see [`docs/migration-from-nestjs-microservices.md`](../docs/migration-from-nestjs-microservices.md)).
+- `07-request-reply` — the opt-in request-reply bridge:
+  `@KafkaHandler({ reply: true })` answering `KafkaRequestReplyService.request()`,
+  error replies, timeouts as *unknown* outcomes, and fire-and-forget handlers
+  left untouched (see [`website/docs/request-reply.md`](../website/docs/request-reply.md)).
 
 ## Commands
 

@@ -64,12 +64,45 @@ deliver on Confluent's officially supported client, never hide Kafka semantics.
   - `KafkaTestModule` and producer mocks
   - One showcase sample + at least four focused samples
   - CI parity with the existing two nest-native packages
+  - **Opt-in request-reply** (ADR 0001), added in a 0.x minor and bounded to:
+    `@KafkaHandler(topic, { reply: true })` answering with the handler's
+    post-enhancer value at whatever address the request's headers name;
+    `KafkaRequestReplyService.request()` with a default timeout and
+    `AbortSignal`; `requestReply` module options; **one** routing strategy —
+    a shared reply topic consumed by a unique single-member ephemeral group per
+    instance, with correlation-id filtering; a header contract defaulting to
+    `@nestjs/microservices`' five key names and configurable; and the four
+    exported error classes. `@KafkaHandler` stays fire-and-forget, and the
+    feature is inert at runtime until it is configured.
 - v1 does NOT ship:
   - Confluent Schema Registry integration (follow-on package)
   - Exactly-once transactional helpers beyond what the client provides
   - A DLQ "framework" — provide primitives, document the pattern
   - AsyncAPI generation (belongs in `@nest-native/asyncapi`)
   - Kafka Streams / KSQL / Connect
+  - Request-reply beyond the bounded surface above. Each of these was
+    considered and declined in ADR 0001 §7; adding one is a decision, not a
+    detail:
+    - **Streaming or multiple replies** (the official observable protocol). The
+      single-promise contract is the honest shape for an at-most-once reply, and
+      it is structurally excluded by the observable normalization rather than
+      merely unimplemented.
+    - **Scatter-gather / broadcast requests.** First-reply-wins is the
+      documented behaviour if several groups answer; aggregation is an
+      application concern.
+    - **Requester-side automatic retries.** A timeout means the outcome is
+      unknown, so a transport-level retry on top of it manufactures duplicates.
+      Re-sending is the caller's decision.
+    - **A second routing strategy** (per-instance reply topics). Additive later
+      by design — the reply address travels in the request's headers — but
+      shipping two strategies at once means shipping two half-tested ones.
+    - **A `ClientProxy`-compatible adapter.** Migration ergonomics, not
+      permanent dual-runtime support; the same reasoning that rules out a
+      kafkajs shim.
+    - Also out: admin/topic-creation tooling (the reply topic is provisioned
+      infrastructure like every other topic), reply-topic allowlists on the
+      replier (broker ACLs are the enforcement layer), and metrics hooks for
+      dropped or late replies (debug logs are the answer, as everywhere else).
 
 ### 4. Sample Folder Rules
 
@@ -85,7 +118,7 @@ deliver on Confluent's officially supported client, never hide Kafka semantics.
 - Focused samples under `sample/01-*` ... `sample/09-*` isolate one topic with
   minimal noise (basics, enhancers, headers/context, Zod validation,
   class-validator validation, batch consume, error mapping + retries,
-  transactions, microservice-app integration).
+  transactions, microservice-app integration, request-reply).
 - Never simplify the showcase for brevity — richness proves the integration
   depth.
 
@@ -102,7 +135,13 @@ deliver on Confluent's officially supported client, never hide Kafka semantics.
 - Graceful shutdown order: stop accepting new claims → drain in-flight →
   disconnect.
 - Header conventions stay neutral; do not standardize `traceId` /
-  `correlationId` / `messageType` keys.
+  `correlationId` / `messageType` keys. **One bounded exception:** the opt-in
+  request-reply feature cannot be header-neutral — a reply address and a
+  correlation id have to live somewhere with agreed names — so its keys are part
+  of *its* contract and are configurable (`requestReply.headers`), defaulting to
+  `@nestjs/microservices`' own names for interop. The exception is scoped to
+  request-reply; general messaging stays neutral, and `KafkaContext.getHeaders()`
+  still returns the raw map untouched. See §12 and ADR 0001 §4.
 - A permanent kafkajs compatibility shim is NOT a feature. Migration
   ergonomics yes; permanent dual-runtime support no.
 - Keep the package lean — minimal runtime dependencies. Published
@@ -218,9 +257,47 @@ deliver on Confluent's officially supported client, never hide Kafka semantics.
 
 ### 12. Accumulated Project Decisions
 
-(Empty at v0; grows as the project lands decisions worth preserving. Append
-entries here when an architectural call repeats or is non-obvious. Each
-entry should be one short paragraph with rationale.)
+(Grows as the project lands decisions worth preserving. Append entries here when
+an architectural call repeats or is non-obvious. Each entry should be one short
+paragraph with rationale.)
+
+**Request-reply is an opt-in bridge, and the event log stays the default**
+(ADR 0001, `docs/adr/0001-request-reply.md`). Kafka-as-RPC is an anti-pattern
+this package does not argue away — but a documented migration path from
+`@nestjs/microservices` is a headline promise, and without request-reply that
+promise excluded every `@MessagePattern` user. So it ships, bounded: `@KafkaHandler`
+stays fire-and-forget unless a handler declares `reply: true`, and the client side
+does nothing at all unless `requestReply` is configured. Two decisions inside it
+are load-bearing and must not be undone casually. **Reply routing** is one shared
+reply topic consumed by a unique single-member ephemeral group per instance
+(`<replyTopic>-<uuid>`), filtering by correlation id — the official transport's
+partition-per-instance design depends on a custom partition assigner that
+librdkafka cannot express, couples partition count to replica count, and loses
+in-flight replies on rebalance. The chosen strategy's correctness argument is the
+*absence* of machinery: a group of one has nothing to rebalance. Its cost is N×
+reply fan-out, which is linear and documented; the strategy seam is the planned
+exit if that ever bites. **The reply path is at-most-once and a timeout means
+"unknown outcome"** — never "it did not happen" — and the docs, the error
+messages, and the absence of transport-level retries all have to keep saying so.
+The `errorMapper` contract is unchanged by the feature: `'commit'` means done, so
+an error reply is sent; `'retry'` means not done yet, so no reply exists to send
+and the broker redelivers.
+
+**The in-memory broker cannot validate anything about the driver surface, so any
+new use of it needs a real-broker case in the same PR.** `InMemoryKafkaBroker`
+accepts every consumer config and every subscribe option without looking at
+them, which makes it silently agreeable about arguments the Confluent client
+rejects outright. Request-reply shipped with `fromBeginning` passed to
+`subscribe()` — valid in `kafkajs`, an `ERR__INVALID_ARG` on this package's
+client, and the difference between "100% covered" and "the feature cannot start"
+(it belongs in the consumer config instead). Its readiness probe had the matching
+disease one level up: a single sentinel produced before the group's first
+assignment is lost to the very latest-offset race the probe exists to detect, and
+an in-memory subscription that is live the instant it is registered can never
+show that. The rule that follows: when a change starts calling a driver method
+with a new argument, or depends on real group-assignment timing, the
+`KAFKA_BROKERS`-gated suite gets a case for it in the same PR — unit coverage of
+that code proves only that we called ourselves consistently.
 
 ## Local Full-Mode Verification (optional infra + mutation testing)
 

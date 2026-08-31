@@ -18,11 +18,14 @@ field-by-field guide is kept in the repository at
 | --- | --- |
 | `ClientsModule.register([{ transport: Transport.KAFKA, ... }])` | `KafkaModule.forRoot({ ... })` / `forRootAsync` |
 | `@Controller()` on the consumer class | `@KafkaConsumer('topic'?, options?)` |
-| `@MessagePattern('topic')` / `@EventPattern('topic')` | `@KafkaHandler('topic'?, options?)` |
+| `@EventPattern('topic')` | `@KafkaHandler('topic'?, options?)` |
+| `@MessagePattern('topic')` | `@KafkaHandler('topic'?, {reply: true})` |
+| `client.send('topic', value)` | `KafkaRequestReplyService.request()` |
+| `client.subscribeToResponseOf('topic')` | nothing — delete it |
 | `@Payload()` | `@KafkaMessage()` |
 | `@Ctx() ctx: KafkaContext` | `@KafkaCtx() ctx: KafkaContext` |
 | (read headers off the raw message) | `@KafkaHeaders()` |
-| `ClientKafka` + `client.emit()` / `client.send()` | `KafkaProducerService` or `@InjectKafkaProducer()` |
+| `ClientKafka` + `client.emit()` | `KafkaProducerService` or `@InjectKafkaProducer()` |
 | `app.connectMicroservice(...)` + `app.startAllMicroservices()` | nothing — consumers start on application bootstrap |
 | Custom test harness / real broker | `KafkaTestModule` + `createMockKafkaProducer()` |
 
@@ -69,11 +72,53 @@ consumer explorer subscribes during `onApplicationBootstrap`. See
 
 ## `@MessagePattern` vs `@EventPattern`
 
-`@nest-native/kafka` models Kafka as the event log it is: `@KafkaHandler` is
-fire-and-forget, like `@EventPattern`. If you relied on the transport's built-in
-request/reply correlation, implement it explicitly by producing to a reply topic
-with `KafkaProducerService` and correlating with a header you own — the package
-stays neutral on header keys.
+`@nest-native/kafka` models Kafka as the event log it is, so `@KafkaHandler` is
+fire-and-forget by default — the direct equivalent of `@EventPattern`.
+
+`@MessagePattern` is request/reply, and it ports too: add `reply: true` and the
+handler's return value becomes the reply, addressed by the request's own
+headers.
+
+```ts
+@KafkaHandler('orders.total', {reply: true})
+async total(@KafkaMessage() query: TotalQuery): Promise<TotalResult> {
+  return this.orders.total(query.customerId); // this becomes the reply
+}
+```
+
+The calling side replaces `client.send()` with `KafkaRequestReplyService`, and
+`subscribeToResponseOf()` disappears entirely:
+
+```ts
+KafkaModule.forRoot({
+  client: {brokers: ['localhost:9092']},
+  requestReply: {replyTopic: 'orders-api.replies'},
+});
+
+const reply = await this.requests.request<TotalResult>({
+  topic: 'orders.total',
+  message: {value: JSON.stringify({customerId})},
+});
+```
+
+Three things are worth knowing before you lean on it, and all of them are in
+[Request-Reply](request-reply.md):
+
+- The header contract defaults to the official transport's own keys, so a
+  **partially migrated fleet interoperates in both directions** with no
+  configuration on either side. Migrate one service at a time.
+- The reply path is **at-most-once**, and a timeout means the outcome is
+  *unknown*, never "it did not happen". There is a 30s default timeout here; the
+  official client's `send()` waits forever unless you added your own `timeout`
+  operator.
+- Reply routing costs **N-times fan-out** across your replicas. The page states
+  the arithmetic and says plainly when a Kafka round trip is the wrong tool.
+
+Earlier versions of this guide told you to hand-roll correlation with a header
+you own. That advice was wrong at scale: correlating is the easy half, and
+making the reply reach the *instance* that asked — across rebalances, restarts,
+and N replicas — is the half that is unsafe to build yourself. That is now the
+package's job.
 
 ## Producing Messages
 
@@ -110,6 +155,12 @@ These are the parts that are *not* a rename.
 - **`sendOffsets` shape.** Takes the live consumer object, not a
   `consumerGroupId` string. See [Transactions](transactions.md).
 - **Backpressure.** `maxInFlight` caps in-flight work; default uncapped.
+- **Request-reply error timing.** The official transport error-replies on *every*
+  handler failure. Here a `'retry'`-mapped error (the default for non-4xx) is
+  redelivered server-side first, so an un-migrated caller's fast failure becomes
+  a timeout unless a retry succeeds in the window. One `errorMapper` line
+  returning `'commit'` for those topics restores the old behaviour. See
+  [Request-Reply](request-reply.md).
 
 ## Testing
 

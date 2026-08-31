@@ -6,6 +6,51 @@ This project follows semantic versioning for the published package. Sample,
 documentation, and CI-only changes may remain in `Unreleased` until the next
 package release is useful for users.
 
+## Unreleased
+
+### Added
+
+- **Request-reply, as an opt-in migration bridge** (ADR 0001,
+  `docs/adr/0001-request-reply.md`). `@KafkaHandler` stays fire-and-forget and
+  Kafka stays the event log it is; what this adds is the one piece a
+  `@MessagePattern` / `ClientKafka.send()` application cannot safely hand-roll —
+  making a reply reach the *instance* that asked, across rebalances, restarts,
+  and N replicas behind a load balancer. Until then the migration guide told
+  users to build that themselves, which was bad advice at scale.
+
+  - Replying side: `@KafkaHandler(topic, { reply: true })` answers with the
+    handler's post-enhancer return value, addressed by the request's own
+    headers — so a replier needs no module configuration at all. `reply` with
+    `batch`, and two repliers on one topic, are refused at bootstrap.
+  - Requesting side: `KafkaRequestReplyService.request<T>()` with a 30s default
+    timeout, per-call overrides, and `AbortSignal` support, plus the exported
+    `KafkaReplyTimeoutError`, `KafkaReplyRemoteError`, `KafkaReplyAbortedError`,
+    and `KafkaReplyDeliveryError`.
+  - Routing: one shared reply topic, one single-member ephemeral consumer group
+    per instance, correlation-id filtering. The correctness argument is an
+    absence of machinery — a group of one has nothing to rebalance — and the
+    cost is N-times reply fan-out, documented with arithmetic.
+  - Interop: the default header keys are `@nestjs/microservices`' own, so a
+    partially migrated fleet works in both directions with no configuration on
+    either side. Pinned by contract tests that run a real `ServerKafka` and a
+    real `ClientKafka` against a real broker.
+  - The feature is inert at runtime until `requestReply` is configured, and the
+    published package still ships `"dependencies": {}` — correlation ids come
+    from `node:crypto`. `kafkajs` enters **dev**-only scope, for the interop
+    contract tests.
+
+  See `website/docs/request-reply.md`, including the section on when
+  request-reply over Kafka is the wrong tool, and `sample/07-request-reply`.
+
+### Fixed
+
+- **`fromBeginning` is no longer passed to `subscribe()`.** `kafkajs` accepts it
+  there; Confluent's compatibility layer rejects it outright with
+  `ERR__INVALID_ARG` and reads it only at consumer creation. The reply consumer
+  was the only caller, and the in-memory broker ignores subscribe options, so
+  the real-broker suite was the first thing that could see it. The field on
+  `KafkaSubscription` is now documented as unusable and deprecated.
+
 ## 0.4.1
 
 ### Fixed

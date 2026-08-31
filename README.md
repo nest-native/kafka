@@ -40,6 +40,16 @@ pipes, interceptors, filters) intact on handler methods.
 It is a transport-only integration. It wraps the Confluent client; it does not
 re-implement or hide it.
 
+`@KafkaHandler` is fire-and-forget by default, and Kafka stays the event log it
+is. `@MessagePattern`'s request/reply semantics are available as an **opt-in
+bridge** (`@KafkaHandler(topic, { reply: true })` plus
+`KafkaRequestReplyService`) so migrating applications are not blocked on the one
+piece that is unsafe to hand-roll — routing a reply back to the *instance* that
+asked. Its costs are stated plainly in
+[the request-reply guide](website/docs/request-reply.md): the reply path is
+at-most-once, a timeout means the outcome is unknown, and reply fan-out is
+N-times per replica.
+
 ## Why
 
 The official `@nestjs/microservices` Kafka transport is built on `kafkajs`,
@@ -258,7 +268,10 @@ The initial `0.x` release covers:
    for the consume-process-produce pattern.
 7. **Testing utilities** — `KafkaTestModule`, `InMemoryKafkaBroker`,
    `createMockKafkaProducer`, and a migration guide from `@nestjs/microservices`.
-8. **Documentation site and the sample catalog**, plus a real-broker CI
+8. **Opt-in request-reply** — `@KafkaHandler(topic, { reply: true })` and
+   `KafkaRequestReplyService.request()`, wire-compatible with
+   `@nestjs/microservices` in both directions. Off unless configured.
+9. **Documentation site and the sample catalog**, plus a real-broker CI
    integration test running against a single-node KRaft Kafka.
 
 See [CHANGELOG.md](CHANGELOG.md) for the per-release detail.

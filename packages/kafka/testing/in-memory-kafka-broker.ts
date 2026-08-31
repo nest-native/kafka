@@ -317,7 +317,8 @@ export class InMemoryKafkaBroker {
     topic: string,
     messages: KafkaProducerMessage[],
   ): Promise<void> {
-    for (let partition = 0; partition < messages.length; partition += 1) {
+    for (let index = 0; index < messages.length; index += 1) {
+      const message = messages[index];
       // Producers and consumers are decoupled in Kafka: a handler that throws
       // (for example after a guard denies the message and no filter handles the
       // exception) must never fail the producer's send, so each delivery is
@@ -325,8 +326,12 @@ export class InMemoryKafkaBroker {
       try {
         await consumer.eachMessage?.({
           topic,
-          partition,
-          message: toConsumed(messages[partition], partition),
+          // Honour an explicitly targeted partition, exactly as batch delivery
+          // does. Deriving it from the array index instead — as this did until
+          // 0.5.0 — invented partitions no producer asked for and made explicit
+          // partition targeting untestable in-memory.
+          partition: message.partition ?? 0,
+          message: toConsumed(message, index),
         });
       } catch {
         // Swallowed deliberately: see comment above.

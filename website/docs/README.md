@@ -29,6 +29,7 @@ Use the shortest path for the decision in front of you.
 ## Migration
 
 - [Migration Guide](migration.md): porting off `@nestjs/microservices`'s Kafka transport
+- [Request-Reply](request-reply.md): the opt-in `@MessagePattern` bridge, its routing, and when not to use it
 
 ## Samples
 

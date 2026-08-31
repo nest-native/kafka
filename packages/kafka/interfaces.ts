@@ -1,8 +1,11 @@
 import { ModuleMetadata, Provider } from '@nestjs/common';
 import {
   KafkaClientConfig,
+  KafkaConsumerConfig,
   KafkaDriverFactory,
+  KafkaMessageHeaders,
   KafkaProducerConfig,
+  KafkaProducerMessage,
 } from './driver';
 import { KafkaErrorMapper } from './kafka-error-mapping';
 
@@ -84,6 +87,151 @@ export interface KafkaModuleOptions {
    * @default 0 (uncapped)
    */
   maxInFlight?: number;
+
+  /**
+   * Opt into request-reply on the **client** side.
+   *
+   * Absent (the default) nothing about request-reply exists at runtime: no reply
+   * consumer is created, no topic is touched, and
+   * {@link KafkaRequestReplyService.request} rejects immediately with a
+   * configuration error. Configuration *is* the opt-in.
+   *
+   * The replying side is opted into per handler with
+   * `@KafkaHandler(topic, { reply: true })` and needs no `requestReply` block —
+   * a replier learns where to answer from the request's own headers. Configure
+   * this only to *issue* requests (or to override the header keys an existing
+   * replier reads).
+   */
+  requestReply?: KafkaRequestReplyOptions;
+}
+
+/**
+ * Client-side request-reply configuration. See ADR 0001 for the routing
+ * decision behind the shared reply topic.
+ */
+export interface KafkaRequestReplyOptions {
+  /**
+   * The reply topic every instance of this application shares. Provisioned by
+   * you, like every topic this package consumes — there is no derived default,
+   * because the topic is infrastructure you own.
+   *
+   * Recommended configuration: any partition count (start with 1 — it is
+   * irrelevant to routing), `retention.ms` in the minutes range (a reply older
+   * than the longest timeout is garbage by definition), `cleanup.policy=delete`.
+   */
+  replyTopic: string;
+
+  /**
+   * Default per-request timeout. A timeout means the outcome is **unknown** —
+   * the request may still be processed — never "it did not happen".
+   *
+   * @default 30000
+   */
+  timeoutMs?: number;
+
+  /**
+   * How long {@link KafkaRequestReplyService.request} may wait for this
+   * instance's reply consumer to be assigned and fetching before failing fast.
+   * A missing or unauthorized reply topic surfaces here, named, instead of as a
+   * silent hang.
+   *
+   * @default 10000
+   */
+  readinessTimeoutMs?: number;
+
+  /**
+   * Prefix for the ephemeral per-instance consumer group id; a UUID is appended
+   * per process so every instance is a single-member group of its own.
+   *
+   * @default `${replyTopic}-`
+   */
+  groupIdPrefix?: string;
+
+  /**
+   * Override the header keys the protocol uses. The defaults interoperate with
+   * `@nestjs/microservices`; see {@link KafkaRequestReplyHeaderKeys}.
+   */
+  headers?: Partial<KafkaRequestReplyHeaderKeys>;
+
+  /**
+   * Advanced passthrough to the reply consumer — same shape and routing as
+   * every other consumer config in this package. The generated `groupId` always
+   * wins: a shared group would defeat the routing entirely.
+   */
+  consumer?: KafkaConsumerConfig;
+}
+
+/**
+ * The header keys the request-reply protocol reads and writes.
+ *
+ * The package's documented header neutrality (no standardized
+ * `traceId`/`correlationId`/`messageType` keys) is preserved for general
+ * messaging and amended for this opt-in feature only: an address and a
+ * correlation id have to live somewhere with agreed names. The defaults are
+ * `@nestjs/microservices`' own keys so a partially migrated fleet interoperates
+ * in both directions without either side knowing the other changed.
+ */
+export interface KafkaRequestReplyHeaderKeys {
+  /** @default 'kafka_correlationId' */
+  correlationId: string;
+  /** @default 'kafka_replyTopic' */
+  replyTopic: string;
+  /**
+   * Read on the replying side to honour an un-migrated `ClientKafka`'s explicit
+   * reply partition. Never written by {@link KafkaRequestReplyService.request}:
+   * this package's routing consumes every partition of its reply topic, and
+   * `ServerKafka` treats a missing value as "no partition targeting".
+   *
+   * @default 'kafka_replyPartition'
+   */
+  replyPartition: string;
+  /** @default 'kafka_nest-err' */
+  error: string;
+  /** @default 'kafka_nest-is-disposed' */
+  disposed: string;
+}
+
+/**
+ * The request {@link KafkaRequestReplyService.request} produces.
+ */
+export interface KafkaRequestRecord {
+  /** The topic the replying handler consumes. */
+  topic: string;
+  /**
+   * The same shape `send()` takes: you serialize `value` explicitly, exactly as
+   * for every other produce in this package.
+   */
+  message: KafkaProducerMessage;
+}
+
+/**
+ * Per-call overrides for {@link KafkaRequestReplyService.request}.
+ */
+export interface KafkaRequestOptions {
+  /** Overrides `requestReply.timeoutMs` for this call. */
+  timeoutMs?: number;
+  /**
+   * Cancels the *wait*, not the remote work. There is no cross-process
+   * cancellation to offer honestly.
+   */
+  signal?: AbortSignal;
+}
+
+/**
+ * A correlated reply, as delivered to the instance that issued the request.
+ */
+export interface KafkaReply<T> {
+  /**
+   * Deserialized like every consumed payload: JSON when it parses, the decoded
+   * string otherwise, `null` for a tombstone.
+   */
+  value: T;
+  headers: KafkaMessageHeaders;
+  correlationId: string;
+  /** The reply topic the reply was consumed from. */
+  topic: string;
+  partition: number;
+  offset?: string;
 }
 
 /**
@@ -162,6 +310,25 @@ export interface KafkaHandlerOptions extends KafkaConcurrencyOptions {
    * @default false
    */
   batch?: boolean;
+
+  /**
+   * Reply with the handler's resolved return value when the consumed message
+   * carries a reply address in its headers. Fire-and-forget remains the default:
+   * a handler answers only because it said so here.
+   *
+   * The reply value is the handler's **post-enhancer** result — interceptors may
+   * transform it, observables collapse to their last value, and a value returned
+   * by an exception filter that handled the error becomes the reply. A message
+   * with no reply address runs the handler normally and skips the reply step, so
+   * replayed requests nobody is waiting on stay legitimate traffic.
+   *
+   * Incompatible with {@link KafkaHandlerOptions.batch} — a batch has no single
+   * request to answer. Declaring both is a bootstrap-time configuration error,
+   * as is routing two replying handlers to one topic.
+   *
+   * @default false
+   */
+  reply?: boolean;
 }
 
 /**
