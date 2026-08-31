@@ -374,10 +374,67 @@ interface ConfluentKafkaModule {
  * hatch {@link KafkaClientConfig} advertises, and made tunables such as
  * `reconnect.backoff.ms` unreachable.
  *
- * The split keys off the dot: every `librdkafka` property is dotted
- * (`socket.keepalive.enable`), and no KafkaJS option is. That makes the rule
- * total and needs no table of known names to drift out of date.
+ * Routing is by two rules, in order:
+ *
+ * 1. **Dotted keys are `librdkafka` properties.** Every dotted name
+ *    (`socket.keepalive.enable`) belongs to `librdkafka`, and no KafkaJS option
+ *    contains a dot, so this covers the large majority with no list to maintain.
+ * 2. **Undotted `librdkafka` properties are named explicitly.** The dot rule is
+ *    *not* total: the client's own config types declare 32 undotted properties,
+ *    including `debug` and `log_level` — the two most useful for diagnosing the
+ *    connection behaviour this package leans on. Left inside `kafkaJS` they fail
+ *    at `connect()` with "The '<name>' property is not supported", which is the
+ *    exact failure this function exists to prevent. They are listed in
+ *    {@link RDKAFKA_UNDOTTED_PROPERTIES}, and a test reads the installed
+ *    client's type definitions and fails if that list falls behind.
+ *
+ * Anything else stays under `kafkaJS`. `acks` is deliberately excluded from the
+ * list: it is the one undotted name the KafkaJS layer also accepts, so routing
+ * it would break configuration that works today.
  */
+export const RDKAFKA_UNDOTTED_PROPERTIES: ReadonlySet<string> = new Set([
+  'background_event_cb',
+  'closesocket_cb',
+  'connect_cb',
+  'consume_cb',
+  'debug',
+  'default_topic_conf',
+  'dr_cb',
+  'dr_msg_cb',
+  'enabled_events',
+  'error_cb',
+  'event_cb',
+  'interceptors',
+  'log_cb',
+  'log_level',
+  'msg_order_cmp',
+  'oauthbearer_token_refresh_cb',
+  'offset_commit_cb',
+  'opaque',
+  'open_cb',
+  'partitioner',
+  'partitioner_cb',
+  'rebalance_cb',
+  'resolve_cb',
+  'retries',
+  'socket_cb',
+  'ssl_ca',
+  'ssl_certificate',
+  'ssl_engine_callback_data',
+  'ssl_key',
+  'stats_cb',
+  'throttle_cb',
+]);
+
+/**
+ * Undotted names the KafkaJS compatibility layer accepts itself, so they must
+ * stay inside `kafkaJS` even though `librdkafka` also declares them. Routing
+ * these would break configuration that works today.
+ */
+export const KAFKAJS_SHARED_UNDOTTED_PROPERTIES: ReadonlySet<string> = new Set([
+  'acks',
+]);
+
 export function splitDriverConfig(
   config: Record<string, unknown>,
 ): Record<string, unknown> {
@@ -385,7 +442,7 @@ export function splitDriverConfig(
   const kafkaJS: Record<string, unknown> = {};
 
   for (const [key, value] of Object.entries(config)) {
-    if (key.includes('.')) {
+    if (key.includes('.') || RDKAFKA_UNDOTTED_PROPERTIES.has(key)) {
       rdkafka[key] = value;
     } else {
       kafkaJS[key] = value;
