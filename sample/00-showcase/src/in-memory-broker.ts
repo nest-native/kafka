@@ -122,7 +122,8 @@ export class InMemoryBroker {
     topic: string,
     messages: KafkaProducerMessage[],
   ): Promise<void> {
-    for (let partition = 0; partition < messages.length; partition += 1) {
+    for (let index = 0; index < messages.length; index += 1) {
+      const message = messages[index];
       // Producers and consumers are decoupled in Kafka: a handler that throws
       // (for example after a guard denies the message and no filter handles the
       // exception) must never fail the producer's send, so each delivery is
@@ -130,8 +131,12 @@ export class InMemoryBroker {
       try {
         await consumer.eachMessage?.({
           topic,
-          partition,
-          message: toConsumed(messages[partition], partition),
+          // Honour an explicitly targeted partition, as batch delivery does.
+          // Deriving it from the array index invents partitions the producer
+          // never chose — the same defect fixed in the package's own
+          // InMemoryKafkaBroker in 0.5.0.
+          partition: message.partition ?? 0,
+          message: toConsumed(message, index),
         });
       } catch {
         // Swallowed: the transport's own error mapping decides commit-vs-retry.

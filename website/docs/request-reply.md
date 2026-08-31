@@ -197,6 +197,31 @@ every handler failure. Restoring the old behaviour is one line — an
 `errorMapper` returning `'commit'` for the affected topics. See
 [Error Mapping](error-mapping.md).
 
+:::warning A plain `throw new Error()` makes your caller wait out the timeout
+
+The default mapper sends anything that is not a 4xx to `'retry'`, so the most
+natural line to write in a replying handler is also the one that produces no
+reply at all:
+
+```ts
+// The caller waits the full timeout, then learns "outcome unknown" — for a
+// failure that was permanent and knowable the moment it happened.
+throw new Error('orgId must be a number');
+
+// A 4xx maps to 'commit': the offset advances and the failure travels back as
+// an error reply, so the caller rejects with KafkaReplyRemoteError at once.
+throw new BadRequestException('orgId must be a number');
+```
+
+The rule of thumb: if redelivering the *same* message could never succeed, it is
+a 4xx. Validation failures, unknown ids and malformed payloads are permanent;
+a database that is momentarily down is not.
+
+Watch for this in tests too. A test that only asserts "no answer came back"
+passes under either path, so it can go green by timing out while claiming to
+prove the error reply. Bound the elapsed time, or assert on the error type.
+:::
+
 ### The rest of the failure table
 
 | Situation | What happens |

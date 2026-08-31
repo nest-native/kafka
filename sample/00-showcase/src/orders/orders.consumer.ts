@@ -22,6 +22,9 @@ export interface OrderPlaced {
   id: string;
   tenant: string;
   amount: number;
+  /** What the order is for. Checked against inventory before publishing. */
+  sku: string;
+  quantity: number;
 }
 
 export const ORDERS_TOPIC = 'showcase.orders.placed';
