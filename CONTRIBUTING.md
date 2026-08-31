@@ -4,7 +4,7 @@ Thanks for helping improve `@nest-native/kafka`.
 
 ## Project Status
 
-This package is published at `0.4.x` (`0.x`): functional and fully tested, and
+This package is published at `0.5.x` (`0.x`): functional and fully tested, and
 usable today, though the public API may still change before `1.0` (per semver,
 `0.x` minor releases can include breaking changes — pin a version). The initial
 `0.x` release covers the transport surface — the module

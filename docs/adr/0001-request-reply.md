@@ -1,6 +1,6 @@
 # ADR 0001: Request-reply
 
-- **Status:** Proposed
+- **Status:** Accepted — implemented in 0.5.0
 - **Date:** 2026-08-31
 - **Package version at time of writing:** 0.4.1
 
