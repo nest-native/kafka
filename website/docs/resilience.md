@@ -72,9 +72,11 @@ Being honest about the edges matters more than the headline:
 
 ## Tuning
 
-Every unrecognised key in `client`, `producer`, and `consumer` configuration is
-forwarded to the underlying client untouched, so any `librdkafka` property can
-be set without this package modelling it:
+`librdkafka` properties can be set alongside the KafkaJS-style options, in the
+same object. Dotted names are recognised automatically; the undotted ones the
+client declares (`debug`, `log_level`, the `*_cb` callbacks, `ssl_ca` and
+friends) are routed by name, and a test reads the installed client's own type
+definitions so that list cannot fall behind a client release:
 
 ```ts
 KafkaModule.forRoot({
@@ -91,6 +93,10 @@ KafkaModule.forRoot({
 
 The defaults are `librdkafka`'s own and are sensible for most deployments;
 reach for these when you have measured a reason to.
+
+One name is deliberately *not* routed: `acks` is the single undotted property
+the KafkaJS compatibility layer also accepts, so it stays where that layer reads
+it. Everything else undotted that the client declares goes to `librdkafka`.
 
 ## Observing it
 

@@ -6,6 +6,36 @@ This project follows semantic versioning for the published package. Sample,
 documentation, and CI-only changes may remain in `Unreleased` until the next
 package release is useful for users.
 
+## 0.4.1
+
+### Fixed
+
+- **Undotted `librdkafka` properties were still unreachable.** 0.4.0 routed
+  configuration by looking for a dot, on the reasoning that every `librdkafka`
+  property is dotted. It is not: the client's own config types declare 32
+  undotted properties, so `debug`, `log_level`, `retries`, `partitioner`,
+  `enabled_events`, the `*_cb` callbacks and the flat `ssl_*` keys still landed
+  inside `kafkaJS` and still failed at `connect()` with "The '<name>' property
+  is not supported" — the exact failure 0.4.0 set out to remove. Notably
+  `debug` is the property most used to diagnose the connection behaviour this
+  package leans on.
+
+  Those names are now routed explicitly, and a new test reads the *installed*
+  client's type definitions and fails if the list falls behind a client
+  release, so the table cannot rot silently. `acks` is deliberately excluded —
+  it is the one undotted name the KafkaJS layer also accepts, and routing it
+  would break configuration that works today.
+
+- **The drift guard now actually runs in CI.** It skips wherever the optional
+  Confluent peer is absent, which is every job except the integration one — so
+  as first written it was a gate in name only. The integration job, the one
+  place the peer is installed, now runs it as its own step
+  (`npm run test:peer-drift`).
+
+- **Docs no longer overclaim.** The resilience page said any `librdkafka`
+  property could be set, which was untrue for exactly the properties above. It
+  now describes what is actually routed and how the list is kept honest.
+
 ## 0.4.0
 
 ### Added

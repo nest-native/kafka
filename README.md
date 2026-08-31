@@ -11,7 +11,7 @@
 </p>
 
 > [!NOTE]
-> **Status: `0.4.0` (`0.x`).** Functional and fully tested (100% coverage), and
+> **Status: `0.4.1` (`0.x`).** Functional and fully tested (100% coverage), and
 > usable today — but the public API may still change before `1.0`. Per semver,
 > `0.x` minor releases can include breaking changes, so pin a version. See the
 > [support policy](https://nest-native.dev/kafka/support-policy). The initial
@@ -199,8 +199,8 @@ your application. When a broker restarts, the same Nest application, the same
 That is asserted rather than claimed: the integration suite restarts the broker
 container out from under a running application and requires the same handler to
 receive a message published afterwards. Raw `librdkafka` tunables
-(`reconnect.backoff.ms`, `socket.keepalive.enable`, …) can be set alongside the
-KafkaJS-style options — see
+(`reconnect.backoff.ms`, `socket.keepalive.enable`, `debug`, …) can be set
+alongside the KafkaJS-style options — see
 [Resilience and Reconnection](https://nest-native.dev/kafka/docs/resilience).
 
 ## Quality Gates

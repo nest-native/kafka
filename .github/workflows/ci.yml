@@ -325,6 +325,12 @@ jobs:
           docker logs kafka || true
           exit 1
 
+      - name: Check the librdkafka property list against the installed client
+        # This job is the only one that installs the optional Confluent peer, so
+        # it is the only place the drift guard can actually run — everywhere else
+        # it skips, which would make it a gate in name only.
+        run: npm run test:peer-drift
+
       - name: Run the real-broker integration suite
         env:
           KAFKA_BROKERS: localhost:9092
