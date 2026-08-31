@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
+import { setTimeout as delay } from 'node:timers/promises';
 import {
   KafkaClientDriver,
   KafkaConsumerConfig,
@@ -15,6 +16,26 @@ import { KafkaRequestReplyService } from '../kafka-request-reply.service';
 import { DEFAULT_KAFKA_REQUEST_REPLY_HEADERS as KEYS } from '../kafka-request-reply.protocol';
 
 const REPLY_TOPIC = 'app.replies';
+
+/**
+ * Poll `count` until it stops moving across a window, and return where it
+ * settled. The readiness probe re-produces its sentinel on a cadence, so
+ * "production stopped" is only observable as "the count is no longer climbing" —
+ * polled against an observable condition with a bound, never slept on.
+ */
+async function quiesce(count: () => number, quietMs: number): Promise<number> {
+  const deadline = Date.now() + 2_000;
+  for (;;) {
+    const before = count();
+    await delay(quietMs);
+    if (count() === before) {
+      return before;
+    }
+    if (Date.now() > deadline) {
+      throw new Error(`Sentinel production never stopped (${count()} so far)`);
+    }
+  }
+}
 
 /**
  * These tests drive the service with a hand-built driver instead of the
@@ -120,14 +141,18 @@ describe('reply-consumer topology', () => {
     await second.service.onApplicationShutdown();
   });
 
-  it('subscribes from latest and commits no offsets', async () => {
+  it('starts from latest and commits no offsets', async () => {
     const app = harness({ replyTopic: REPLY_TOPIC });
 
     await app.service.onApplicationBootstrap();
 
-    assert.deepEqual(app.subscriptions, [
-      { topics: [REPLY_TOPIC], fromBeginning: false },
-    ]);
+    // "From latest" is declared at consumer creation, not on `subscribe()`.
+    // Confluent's compatibility layer rejects `fromBeginning` as a subscribe
+    // option with `ERR__INVALID_ARG`, which no in-memory broker can reproduce —
+    // the real-broker suite caught it, and this assertion is what keeps it
+    // caught.
+    assert.deepEqual(app.subscriptions, [{ topics: [REPLY_TOPIC] }]);
+    assert.equal(app.configs[0].fromBeginning, false);
     // Committed offsets for a group that dies with the process are pure
     // `__consumer_offsets` churn; the correlation map is the source of truth.
     assert.equal(app.configs[0]['enable.auto.commit'], false);
@@ -269,6 +294,43 @@ describe('reply-consumer readiness failures', () => {
     await app.service.onApplicationShutdown();
   });
 
+  it('stops re-producing sentinels once every caller has given up', async () => {
+    const readinessTimeoutMs = 40;
+    const app = harness(
+      { replyTopic: REPLY_TOPIC, readinessTimeoutMs },
+      { echo: false },
+    );
+    const sentinels = (): number =>
+      app.sent.filter(record => record.topic === REPLY_TOPIC).length;
+
+    await app.service.onApplicationBootstrap();
+    await assert.rejects(
+      app.service.request({ topic: 'orders.total', message: { value: null } }),
+      /was not ready/,
+    );
+
+    // One sentinel is not enough against a real broker, so the probe re-produces
+    // — but only while somebody is still waiting. Once the budget is spent the
+    // loop stops at its next check instead of producing for the life of the
+    // process.
+    const produced = await quiesce(sentinels, readinessTimeoutMs);
+    assert.equal(
+      produced > 1,
+      true,
+      `the probe should re-produce its sentinel while a caller waits, sent ${produced}`,
+    );
+
+    // And the next request arms a fresh probe rather than inheriting the
+    // abandoned one: a consumer that was not fetching a moment ago may be now.
+    await assert.rejects(
+      app.service.request({ topic: 'orders.total', message: { value: null } }),
+      /was not ready/,
+    );
+    assert.equal(sentinels() > produced, true, 'a fresh probe was armed');
+
+    await app.service.onApplicationShutdown();
+  });
+
   it('reuses one probe instead of sending a sentinel per request', async () => {
     const app = harness({ replyTopic: REPLY_TOPIC });
 
@@ -284,8 +346,9 @@ describe('reply-consumer readiness failures', () => {
       ),
     ]);
 
-    // A pending probe is shared: re-producing sentinels would not make an
-    // unassigned consumer assigned any sooner.
+    // A probe is shared by every concurrent caller: readiness is a property of
+    // the instance, not of one request, so two requests do not start two of
+    // them.
     assert.equal(
       app.sent.filter(record => record.topic === REPLY_TOPIC).length,
       1,

@@ -14,7 +14,17 @@ import {
   ResolvedRequestReplyOptions,
   readHeaderText,
 } from './kafka-request-reply.protocol';
-import { waitForReply } from './kafka-request-reply.waiting';
+import { settledWithin, waitForReply } from './kafka-request-reply.waiting';
+
+/**
+ * How many sentinels the readiness probe spends its budget on. The resend
+ * interval is the budget divided by this, so the default 10s budget re-produces
+ * every 500ms — often enough that the first request after boot is not held up
+ * once the group is assigned, rarely enough that an unassigned consumer is not
+ * flooded — and a caller who shortens the budget shortens the cadence with it
+ * instead of getting one attempt.
+ */
+const PROBE_ATTEMPTS = 20;
 
 /**
  * A caller waiting on one correlation id.
@@ -44,9 +54,11 @@ interface KafkaReplyWaiter {
  * `request()` must never produce before this consumer is assigned and fetching,
  * or a fast reply can land before the "latest" position is established and be
  * skipped forever. The mechanism here is a **sentinel self-message**: the
- * instance produces one valueless message to its own reply topic, carrying a
+ * instance produces a valueless message to its own reply topic, carrying a
  * correlation id registered in the same pending map as a real request, and is
- * ready when it consumes that message back.
+ * ready when it consumes that message back. It re-produces the sentinel until
+ * one copy returns, because a sentinel is subject to the very race it is
+ * checking for — see {@link KafkaReplyConsumer.runProbe}.
  *
  * That mechanism was chosen over polling `assignment()` or a rebalance callback
  * for three reasons. It proves the *end-to-end* property that actually matters
@@ -68,6 +80,13 @@ export class KafkaReplyConsumer {
   private probe?: Promise<void>;
 
   /**
+   * Bumped every time a probe is armed or expired. The running sentinel loop
+   * compares against it, which is how a probe nobody is waiting for any more
+   * stops producing.
+   */
+  private probeGeneration = 0;
+
+  /**
    * This instance's ephemeral consumer group. Unique per process by
    * construction, which is the whole routing strategy in one string.
    */
@@ -84,26 +103,37 @@ export class KafkaReplyConsumer {
       // `__consumer_offsets` churn. The caller's config may override this; the
       // group id may not.
       'enable.auto.commit': false,
+      // Start at latest, and say so **here** rather than on `subscribe()`: the
+      // Confluent client accepts `fromBeginning` only at consumer creation and
+      // rejects it as a subscribe option outright (`ERR__INVALID_ARG`). Replies
+      // older than this process started are answers to requests nobody in it is
+      // waiting for, so replaying them would be pure noise anyway.
+      fromBeginning: false,
       ...options.consumer,
       groupId: this.groupId,
     });
   }
 
   /**
-   * Connect, subscribe from latest, and start fetching. The readiness probe is
-   * kicked off without being awaited so a brand-new group's initial rebalance
-   * delay overlaps the rest of bootstrap instead of the first `request()`.
+   * Connect, subscribe, and start fetching, then arm readiness without awaiting
+   * it.
    */
   async start(): Promise<void> {
     await this.consumer.connect();
-    await this.consumer.subscribe({
-      topics: [this.options.replyTopic],
-      fromBeginning: false,
-    });
+    await this.consumer.subscribe({ topics: [this.options.replyTopic] });
     await this.consumer.run({
       eachMessage: payload => this.onMessage(payload),
     });
-    void this.ensureProbe();
+    // Arm readiness eagerly so a brand-new group's initial rebalance delay
+    // overlaps the rest of bootstrap instead of the first `request()`. Going
+    // through `whenReady` rather than the probe directly means this unattended
+    // warm-up is bounded by the same budget every other readiness wait is, so a
+    // consumer that never becomes assigned stops producing sentinels instead of
+    // trying forever.
+    void this.whenReady().catch(() => {
+      // Nobody is waiting on the eager warm-up: the first `request()` arms a
+      // fresh probe and reports the failure to a caller who can act on it.
+    });
   }
 
   /**
@@ -136,7 +166,7 @@ export class KafkaReplyConsumer {
     return waitForReply(
       this.ensureProbe(),
       this.options.readinessTimeoutMs,
-      () => this.readinessTimeoutError(),
+      () => this.expireProbe(),
       signal,
     );
   }
@@ -205,21 +235,74 @@ export class KafkaReplyConsumer {
 
   private ensureProbe(): Promise<void> {
     if (this.probe === undefined) {
-      this.probe = this.runProbe();
+      this.probeGeneration += 1;
+      const generation = this.probeGeneration;
+      this.probe = this.runProbe(generation);
       // A probe that failed on a broker blip or a not-yet-created topic must not
       // poison the service for the process's lifetime: forget it so the next
-      // request tries again. (A probe still *pending* is reused — re-producing
-      // sentinels would not make an unassigned consumer assigned any sooner.)
-      this.probe.catch(() => {
-        this.probe = undefined;
-      });
+      // request tries again. Guarded by generation, so a rejection arriving
+      // after the probe was already expired cannot discard its replacement.
+      this.probe.catch(() => this.retireProbe(generation));
     }
     return this.probe;
   }
 
-  private async runProbe(): Promise<void> {
+  private retireProbe(generation: number): void {
+    if (this.probeGeneration === generation) {
+      this.probe = undefined;
+    }
+  }
+
+  /**
+   * Give up on readiness for now: retire the probe *and* end its sentinel loop
+   * by moving the generation on, so the next request starts a fresh one. A
+   * consumer that was not fetching a moment ago may be fetching now.
+   */
+  private expireProbe(): Error {
+    this.probeGeneration += 1;
+    this.probe = undefined;
+    return this.readinessTimeoutError();
+  }
+
+  /**
+   * Prove this consumer is fetching by round-tripping a sentinel through the
+   * reply topic — re-producing it until one copy comes back.
+   *
+   * **One sentinel is not enough**, and that is the whole reason this loop
+   * exists. The consumer starts at *latest*, so a sentinel produced before the
+   * group's first assignment completes is written past the position the consumer
+   * will take up and is never delivered — the exact race the probe exists to
+   * close, turned on the probe itself. Re-producing is what makes it converge.
+   * A single sentinel appears to work against an in-memory broker, where a
+   * subscription is live the instant it is registered; against a real broker it
+   * never returns.
+   *
+   * The loop ends when a sentinel returns, when the produce fails (a missing or
+   * unwritable reply topic, reported with the topic named), when shutdown
+   * rejects the pending sentinel, or when {@link expireProbe} moves the
+   * generation on because a caller's readiness budget ran out.
+   */
+  private async runProbe(generation: number): Promise<void> {
     const correlationId = randomUUID();
     const delivered = this.expect(correlationId);
+    try {
+      while (this.probeGeneration === generation) {
+        await this.sendSentinel(correlationId);
+        if (await settledWithin(delivered, this.resendIntervalMs())) {
+          return;
+        }
+      }
+      throw this.readinessTimeoutError();
+    } finally {
+      this.forget(correlationId);
+    }
+  }
+
+  private resendIntervalMs(): number {
+    return this.options.readinessTimeoutMs / PROBE_ATTEMPTS;
+  }
+
+  private async sendSentinel(correlationId: string): Promise<void> {
     try {
       await this.producer.send({
         topic: this.options.replyTopic,
@@ -235,10 +318,8 @@ export class KafkaReplyConsumer {
         ],
       });
     } catch (cause) {
-      this.forget(correlationId);
       throw this.readinessProduceError(cause);
     }
-    await delivered;
   }
 
   private readinessTimeoutError(): Error {

@@ -647,6 +647,42 @@ Mutation-testing posture per the constitution: an occasional targeted audit
 of the new correlation/timeout logic (`STRYKER_MUTATE` scoped to the new
 service file) once it stabilizes — not a per-PR gate.
 
+> **Correction, 2026-08-31 (implementation).** The opening claim of this
+> section — "this design needed almost nothing from [the in-memory broker]" —
+> was wrong in the direction that matters, and the real-broker suite is what
+> caught it. Two defects reached a green 100%-branch build and would have made
+> the feature fail to work at all against any real broker:
+>
+> 1. The reply consumer passed `fromBeginning` to `subscribe()`. `kafkajs`
+>    accepts that; Confluent's compatibility layer rejects it with
+>    `ERR__INVALID_ARG` and reads the option only at consumer creation. The
+>    in-memory broker ignores subscribe options entirely, so no unit test could
+>    ever have seen it. (`KafkaSubscription.fromBeginning` is now documented as
+>    unusable and deprecated.)
+> 2. The readiness sentinel was produced **once**. A consumer starting at
+>    *latest* never receives a message written before its first assignment
+>    completes — the exact race the probe exists to detect, turned on the probe
+>    itself — so the probe never returned against a real broker, and because the
+>    lost sentinel left it pending forever it never re-armed either. It now
+>    re-produces on a cadence until one copy comes back, bounded by the
+>    readiness budget. In-memory, a subscription is live the instant it is
+>    registered, so a single sentinel looks perfectly correct there.
+>
+> The generalisable lesson, now recorded in `GUIDELINES_NEST_KAFKA.md` §12: the
+> in-memory broker validates nothing about the driver surface or about real
+> group-assignment timing, so a change that starts calling a driver method with
+> a new argument, or that depends on assignment timing, needs a real-broker case
+> in the same PR. Unit coverage of such code proves only that we call ourselves
+> consistently.
+>
+> The §4 byte-level details, by contrast, all survived contact with the real
+> `@nestjs/microservices`: the five header names, `assignReplyPartition`
+> early-returning on a nil reply-partition header, the correlation-id echo, the
+> `kafka_nest-is-disposed` completion marker (without which a real
+> `ClientKafka`'s observable emits but never completes), and presence-based
+> acceptance of `kafka_nest-err` carrying the official transport's
+> `{status, message}` shape. No correction is owed to §4.
+
 ### 7. Scope boundary for v1 of the feature
 
 Ships:
@@ -672,6 +708,15 @@ Ships:
 - A focused sample (`sample/07-request-reply`) and the showcase's migration
   scenario extended — in a **separate PR**, per the contributing rule
   separating sample and library PRs.
+
+  > **Correction, 2026-08-31 (implementation).** `sample/07-request-reply`
+  > shipped in the same PR as the library change, at the request of the person
+  > directing the work. CONTRIBUTING's separation rule exists so that a bug a
+  > sample exposes gets its own focused library fix rather than being smuggled
+  > into sample work; it was not violated in spirit here (the library changes
+  > came first and carry their own regression tests), but the PR is mixed and
+  > the next one of these should go back to being split. The showcase's
+  > migration scenario was **not** extended and is still owed.
 
 Does NOT ship, with reasons:
 

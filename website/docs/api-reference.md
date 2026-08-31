@@ -19,7 +19,7 @@ the package root.
 | `KafkaConsumer` | decorator | Class-level: `@KafkaConsumer(topic?, options?)`. |
 | `KafkaHandler` | decorator | Method-level: `@KafkaHandler(topic?, options?)`. |
 | `KafkaConsumerOptions` | interface | `groupId` plus concurrency options. |
-| `KafkaHandlerOptions` | interface | `batch` plus concurrency options. |
+| `KafkaHandlerOptions` | interface | `batch`, `reply`, plus concurrency options. |
 
 See [Consumers](consumers.md).
 
@@ -60,6 +60,27 @@ See [Producer](producer.md) and [Transactions](transactions.md).
 | `KafkaErrorContext` | type | `KafkaContext \| KafkaBatchContext`. |
 
 See [Error Mapping](error-mapping.md).
+
+## Request-Reply
+
+Opt-in, and inert until `requestReply` is configured. See
+[Request-Reply](request-reply.md).
+
+| Export | Kind | Notes |
+| --- | --- | --- |
+| `KafkaRequestReplyService` | class | `request(record, options?)` — produce a request and await the correlated reply. |
+| `KafkaRequestReplyOptions` | interface | The `requestReply` module block: `replyTopic` (required), `timeoutMs`, `readinessTimeoutMs`, `groupIdPrefix`, `headers`, `consumer`. |
+| `KafkaRequestRecord` | interface | `{ topic, message }` — the request to produce. |
+| `KafkaRequestOptions` | interface | Per-call `timeoutMs` and `signal`. |
+| `KafkaReply` | interface | `{ value, headers, correlationId, topic, partition, offset? }`. |
+| `KafkaRequestReplyHeaderKeys` | interface | The five header names; defaults interoperate with `@nestjs/microservices`. |
+| `KafkaReplyTimeoutError` | class | No reply in time — the outcome is **unknown**. |
+| `KafkaReplyRemoteError` | class | The remote handler failed and its error mapped to `'commit'`. |
+| `KafkaReplyAbortedError` | class | The wait was cancelled by a signal or by shutdown. |
+| `KafkaReplyDeliveryError` | class | Raised on the replying side when the reply could not be produced. |
+| `DEFAULT_KAFKA_REQUEST_REPLY_HEADERS` | const | The default header key map. |
+| `DEFAULT_REQUEST_TIMEOUT_MS` | const | `30000`. |
+| `DEFAULT_READINESS_TIMEOUT_MS` | const | `10000`. |
 
 ## Driver
 

@@ -38,5 +38,7 @@ from the environment only.
 - Want the whole picture? Read `00-showcase`.
 - Migrating an existing app? Read `06-microservice-migration` alongside the
   [Migration Guide](../migration.md).
+- Porting `@MessagePattern` handlers? Read `07-request-reply` alongside
+  [Request-Reply](../request-reply.md).
 
 See the [Sample Catalog](catalog.md) for the feature-by-feature index.

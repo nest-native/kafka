@@ -61,6 +61,43 @@ export function waitForReply<T>(
 }
 
 /**
+ * Resolve `true` when `work` settles inside `ms`, `false` when the interval
+ * elapses first — a peek at a promise that keeps the promise alive either way.
+ *
+ * The readiness probe uses it to pace its sentinel loop: it needs to ask "did
+ * the sentinel come back yet?" without abandoning the wait when the answer is
+ * no, which neither `waitForReply` (it rejects) nor a bare `Promise.race` (it
+ * leaks the loser's timer) can do.
+ *
+ * A rejection propagates, because the only thing that rejects a pending reply is
+ * shutdown, and a loop must not keep producing sentinels through it.
+ *
+ * The interval timer is `unref`ed: it is internal pacing, not a wait the
+ * application asked for, so it must never be the reason a process stays alive.
+ *
+ * @internal
+ */
+export function settledWithin(
+  work: Promise<unknown>,
+  ms: number,
+): Promise<boolean> {
+  return new Promise<boolean>((resolve, reject) => {
+    const timer = setTimeout(() => resolve(false), ms);
+    timer.unref();
+    work.then(
+      () => {
+        clearTimeout(timer);
+        resolve(true);
+      },
+      (error: unknown) => {
+        clearTimeout(timer);
+        reject(error);
+      },
+    );
+  });
+}
+
+/**
  * What an aborted wait rejects with: the caller's own reason when they supplied
  * one, {@link KafkaReplyAbortedError} otherwise.
  *

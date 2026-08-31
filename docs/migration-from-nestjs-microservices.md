@@ -129,11 +129,61 @@ Notes:
 
 The official transport distinguishes request/response (`@MessagePattern`, which
 auto-replies to a reply topic) from fire-and-forget (`@EventPattern`).
-`@nest-native/kafka` models Kafka as the event log it is: `@KafkaHandler` is
-fire-and-forget, like `@EventPattern`. If you relied on the transport's built-in
-request/reply correlation, implement it explicitly by producing to a reply topic
-with `KafkaProducerService` and correlating with a header you own (the package
-stays neutral on header keys).
+`@nest-native/kafka` models Kafka as the event log it is, so `@KafkaHandler` is
+fire-and-forget by default — the direct equivalent of `@EventPattern`.
+
+`@MessagePattern` ports as an **opt-in** flag on the same decorator. Add
+`reply: true` and the handler's post-enhancer return value becomes the reply,
+addressed by the request's own headers:
+
+```ts
+@KafkaHandler('orders.total', { reply: true })
+async total(@KafkaMessage() query: TotalQuery): Promise<TotalResult> {
+  return this.orders.total(query.customerId); // this becomes the reply
+}
+```
+
+The calling side replaces `ClientKafka.send()` with `KafkaRequestReplyService`,
+and `subscribeToResponseOf()` disappears:
+
+```ts
+KafkaModule.forRoot({
+  client: { brokers: ['localhost:9092'] },
+  // Configuration is the opt-in. Without it nothing request-reply exists at
+  // runtime, and request() rejects naming the missing option.
+  requestReply: { replyTopic: 'orders-api.replies' },
+});
+
+const reply = await this.requests.request<TotalResult>({
+  topic: 'orders.total',
+  message: { value: JSON.stringify({ customerId }) },
+});
+```
+
+| Before | After |
+| --- | --- |
+| `@MessagePattern('t')` | `@KafkaHandler('t', { reply: true })` |
+| `client.send('t', value)` | `requests.request({ topic: 't', message: { value } })` |
+| `client.subscribeToResponseOf('t')` | nothing — delete it |
+| `<pattern>.reply` topic per pattern | one shared `requestReply.replyTopic` |
+
+Because the default header keys are the official transport's own
+(`kafka_correlationId`, `kafka_replyTopic`, `kafka_replyPartition`,
+`kafka_nest-err`, `kafka_nest-is-disposed`), a **partially migrated fleet
+interoperates in both directions with no configuration on either side** — a
+migrated handler answers an un-migrated `ClientKafka` on its own
+`<pattern>.reply` topic and partition, and `request()` gets answers from
+un-migrated `@MessagePattern` services. Both directions are pinned by contract
+tests against a real `ServerKafka` and a real `ClientKafka` on a real broker.
+
+Read [`website/docs/request-reply.md`](../website/docs/request-reply.md) before
+adopting it. Three things matter: the reply path is **at-most-once**; a timeout
+means the outcome is **unknown**, not "it did not happen"; and reply routing
+costs N-times fan-out across replicas, with the arithmetic and the "use HTTP
+instead" advice stated there. Earlier versions of this guide told you to
+hand-roll the correlation yourself — that was wrong at scale, because making a
+reply reach the *instance* that asked, across rebalances and restarts, is the
+part that is unsafe to build by hand.
 
 ## 3. Parameter decorators
 
@@ -230,6 +280,25 @@ consumed offset + 1.
 
 `maxInFlight` (module / consumer / handler) caps how many messages or batches a
 consumer processes at once. The default is uncapped (`0`).
+
+### Request-reply: when the caller learns a handler failed
+
+The official transport error-replies on **every** handler failure. Here the
+`errorMapper` decides, and its contract is unchanged by request-reply:
+
+- `'commit'` means *done*, so the failure is a final answer — an error reply goes
+  out and the caller rejects with `KafkaReplyRemoteError` right away.
+- `'retry'` (the default for anything that is not a 4xx `HttpException`) means
+  *not done yet*, so **no reply is sent**: the broker redelivers, and a later
+  success still resolves the original request inside its timeout window.
+
+So an un-migrated caller's fast failure can become a timeout on a transient
+error. Restoring the official timing is one line — an `errorMapper` returning
+`'commit'` for the affected topics.
+
+Also new: a default timeout **exists** (30s, per-call overridable). The official
+`ClientKafka.send()` waits forever unless the application added its own `timeout`
+operator.
 
 ## 6. Testing
 
