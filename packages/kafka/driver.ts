@@ -399,9 +399,12 @@ export function splitDriverConfig(
  * Default driver factory. Lazily resolves Confluent's client only when a driver
  * is actually constructed, so importing the package never loads `librdkafka`.
  *
- * The Confluent constructor expects connection options nested under a `kafkaJS`
- * key; the configuration supplied to {@link KafkaModuleOptions.client} and
- * {@link KafkaModuleOptions.producer} is forwarded there verbatim.
+ * Configuration supplied to {@link KafkaModuleOptions.client},
+ * {@link KafkaModuleOptions.producer} and the consumer is routed by
+ * {@link splitDriverConfig}: dotted `librdkafka` properties go to the top level
+ * where the client reads them, and KafkaJS-style options go under `kafkaJS`.
+ * Forwarding everything under `kafkaJS` would make the compatibility layer
+ * reject the raw properties outright.
  */
 export const createConfluentDriver: KafkaDriverFactory = (
   clientConfig,
