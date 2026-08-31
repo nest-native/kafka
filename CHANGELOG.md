@@ -6,6 +6,34 @@ This project follows semantic versioning for the published package. Sample,
 documentation, and CI-only changes may remain in `Unreleased` until the next
 package release is useful for users.
 
+## 0.4.0
+
+### Added
+
+- **`librdkafka` tunables now actually reach the client.** Configuration passed
+  to `client`, `producer`, and `consumer` was forwarded wholesale under the
+  Confluent client's `kafkaJS` key, where the compatibility layer rejects raw
+  dotted properties with "The '<name>' property is not supported." The escape
+  hatch the config types advertised was therefore unusable: `reconnect.backoff.ms`,
+  `socket.keepalive.enable`, `metadata.max.age.ms` and every other `librdkafka`
+  property were unreachable. Options are now split on the dot — dotted properties
+  go to the top level the client reads them from, KafkaJS-style options stay
+  under `kafkaJS` — so both families can be mixed in one object.
+
+- **Broker-restart recovery is proven, not asserted.** The real-broker
+  integration suite restarts the broker container out from under a running
+  application, severing every connection the client holds, then requires the same
+  handler to receive a message published afterwards. Nothing in between restarts
+  the application, re-creates the producer, or re-subscribes the consumer, so
+  recovery has to come from the client itself. The case is gated on
+  `KAFKA_RESTART_CONTAINER` naming a container the suite may restart, so pointing
+  `KAFKA_BROKERS` at a shared or managed cluster never restarts anything.
+
+- **Docs: a Resilience and Reconnection page** stating what recovers
+  automatically, what the integration test proves, and — deliberately — what
+  recovery does *not* promise: produce calls during an outage can still fail,
+  redelivery remains at-least-once, and a rebalance can move partitions.
+
 ## Unreleased
 
 - Docs: the version literals in prose told the wrong story — both READMEs
