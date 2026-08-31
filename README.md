@@ -189,6 +189,20 @@ mapping, graceful shutdown, the parameter decorators, and the testing utilities 
 is covered in the package [README](packages/kafka/README.md) and the
 [documentation site](https://nest-native.dev/kafka/).
 
+## Resilience
+
+Broker reconnection, metadata refresh, and consumer-group re-join are handled by
+`librdkafka` underneath the Confluent client — not by this package and not by
+your application. When a broker restarts, the same Nest application, the same
+`KafkaProducerService`, and the same consumers recover on their own.
+
+That is asserted rather than claimed: the integration suite restarts the broker
+container out from under a running application and requires the same handler to
+receive a message published afterwards. Raw `librdkafka` tunables
+(`reconnect.backoff.ms`, `socket.keepalive.enable`, …) can be set alongside the
+KafkaJS-style options — see
+[Resilience and Reconnection](https://nest-native.dev/kafka/docs/resilience).
+
 ## Quality Gates
 
 The repository ships the same review posture as its sibling `@nest-native`
@@ -201,8 +215,9 @@ packages, using `node:test` and `c8`:
 - package tarball validation and README link validation
 - supply-chain audit for high-severity issues
 - a real-broker integration job that runs a produce → consume round-trip, a
-  transactional commit, and per-topic concurrency against a single-node KRaft
-  Kafka (skipped locally unless `KAFKA_BROKERS` is set)
+  transactional commit, per-topic concurrency, and a **broker restart** against
+  a single-node KRaft Kafka (skipped locally unless `KAFKA_BROKERS` is set;
+  the restart case additionally needs `KAFKA_RESTART_CONTAINER`)
 
 Run the local gate with:
 

@@ -20,6 +20,7 @@ const sidebars: SidebarsConfig = {
         'batch-and-concurrency',
         'transactions',
         'graceful-shutdown',
+        'resilience',
       ],
     },
     'testing',

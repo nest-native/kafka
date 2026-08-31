@@ -300,6 +300,12 @@ export interface KafkaClientDriver {
  * `brokers` list is required; everything else passes straight through so
  * advanced users can supply SASL/SSL or any other Confluent option without the
  * package having to model it.
+ *
+ * Two naming conventions are accepted and routed to the right place by
+ * {@link splitDriverConfig}: KafkaJS-style camelCase options (`brokers`,
+ * `clientId`, `ssl`, `sasl`) and raw dotted `librdkafka` properties
+ * (`reconnect.backoff.ms`, `socket.keepalive.enable`). Mixing them in one
+ * object is fine.
  */
 export interface KafkaClientConfig {
   brokers: string[];
@@ -356,6 +362,40 @@ interface ConfluentKafkaModule {
 }
 
 /**
+ * Route a caller's configuration to the two places Confluent's client reads it
+ * from.
+ *
+ * `CommonConstructorConfig` extends `librdkafka`'s `GlobalConfig` *and* carries
+ * an optional `kafkaJS` key, so the two families of option live at different
+ * levels: KafkaJS-style options belong inside `kafkaJS`, while raw `librdkafka`
+ * properties belong beside it, at the top level. Nesting everything under
+ * `kafkaJS` makes the compatibility layer reject any raw property with
+ * "The '<name>' property is not supported." — which silently broke the escape
+ * hatch {@link KafkaClientConfig} advertises, and made tunables such as
+ * `reconnect.backoff.ms` unreachable.
+ *
+ * The split keys off the dot: every `librdkafka` property is dotted
+ * (`socket.keepalive.enable`), and no KafkaJS option is. That makes the rule
+ * total and needs no table of known names to drift out of date.
+ */
+export function splitDriverConfig(
+  config: Record<string, unknown>,
+): Record<string, unknown> {
+  const rdkafka: Record<string, unknown> = {};
+  const kafkaJS: Record<string, unknown> = {};
+
+  for (const [key, value] of Object.entries(config)) {
+    if (key.includes('.')) {
+      rdkafka[key] = value;
+    } else {
+      kafkaJS[key] = value;
+    }
+  }
+
+  return { ...rdkafka, kafkaJS };
+}
+
+/**
  * Default driver factory. Lazily resolves Confluent's client only when a driver
  * is actually constructed, so importing the package never loads `librdkafka`.
  *
@@ -368,12 +408,12 @@ export const createConfluentDriver: KafkaDriverFactory = (
   producerConfig,
 ) => {
   const { KafkaJS } = loadConfluentModule();
-  const kafka = new KafkaJS.Kafka({ kafkaJS: { ...clientConfig } });
+  const kafka = new KafkaJS.Kafka(splitDriverConfig(clientConfig));
 
   return {
-    createProducer: () => kafka.producer({ kafkaJS: { ...producerConfig } }),
+    createProducer: () => kafka.producer(splitDriverConfig(producerConfig)),
     createConsumer: (consumerConfig = {}) =>
-      kafka.consumer({ kafkaJS: { ...consumerConfig } }),
+      kafka.consumer(splitDriverConfig(consumerConfig)),
   };
 };
 

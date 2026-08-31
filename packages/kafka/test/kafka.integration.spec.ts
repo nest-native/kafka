@@ -1,7 +1,9 @@
 import assert from 'node:assert/strict';
+import { execFile } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import { setTimeout as delay } from 'node:timers/promises';
 import { after, before, describe, it } from 'node:test';
+import { promisify } from 'node:util';
 import { Injectable, Module } from '@nestjs/common';
 import { Test, TestingModule } from '@nestjs/testing';
 import { createConfluentDriver } from '../driver';
@@ -42,6 +44,8 @@ function resolveBrokers(): string[] {
     .filter(broker => broker.length > 0);
 }
 
+const execFileAsync = promisify(execFile);
+
 const brokers = resolveBrokers();
 const skip = brokers.length === 0;
 
@@ -61,6 +65,7 @@ interface AdminClient {
   createTopics(args: {
     topics: { topic: string; numPartitions: number }[];
   }): Promise<unknown>;
+  listTopics(): Promise<string[]>;
 }
 
 interface ConfluentClient {
@@ -164,6 +169,126 @@ async function waitFor(
       throw new Error('Timed out waiting for the broker condition');
     }
     await delay(intervalMs);
+  }
+}
+
+/**
+ * Name of the container running the broker, from `KAFKA_RESTART_CONTAINER`.
+ *
+ * The restart test has to stop and start the broker itself, which needs a
+ * container it is allowed to control. That name differs between environments
+ * (`kafka` in CI, `nest-kafka-broker` in `compose.yaml`), and a developer who
+ * points `KAFKA_BROKERS` at a shared or managed cluster must never have it
+ * restarted underneath them. The capability is therefore opt-in and named
+ * explicitly rather than guessed from the broker list.
+ */
+const restartContainer = (process.env.KAFKA_RESTART_CONTAINER ?? '').trim();
+
+/** The restart test additionally needs a broker it is allowed to restart. */
+const skipRestart = skip || restartContainer.length === 0;
+
+/** Reject if `work` has not settled within `timeoutMs`. */
+async function withTimeout<T>(
+  work: () => Promise<T>,
+  timeoutMs: number,
+  what: string,
+): Promise<T> {
+  const abort = new AbortController();
+  try {
+    return await Promise.race([
+      work(),
+      delay(timeoutMs, undefined, { signal: abort.signal }).then(() => {
+        throw new Error(`Timed out after ${timeoutMs}ms: ${what}`);
+      }),
+    ]);
+  } finally {
+    abort.abort();
+  }
+}
+
+/**
+ * Restart the broker container out from under the running application.
+ *
+ * `docker restart` stops the container and starts it again, so every TCP
+ * connection the client holds is severed — the closest cheap analogue of a
+ * broker rolling restart or a crash.
+ */
+async function restartBroker(): Promise<void> {
+  await withTimeout(
+    () => execFileAsync('docker', ['restart', restartContainer]),
+    120_000,
+    `restarting container ${restartContainer}`,
+  );
+}
+
+/**
+ * Poll until the broker serves metadata again.
+ *
+ * This deliberately issues a real `listTopics()` round-trip rather than relying
+ * on `admin.connect()`. librdkafka connects lazily: against a stopped broker
+ * `connect()` resolves in a few milliseconds and reports success, so a
+ * connect-only probe would return immediately and make the caller's wait — and
+ * every assertion after it — vacuous. `listTopics()` fails with
+ * `Local: Broker transport failure` while the broker is down, which is the
+ * signal this loop needs.
+ *
+ * A throwaway admin client per attempt is intentional: one that failed while
+ * the broker was down keeps reporting the stale failure rather than noticing
+ * the recovered broker.
+ */
+async function waitForBrokerReady(timeoutMs = 120_000): Promise<void> {
+  const { KafkaJS } =
+    require('@confluentinc/kafka-javascript') as ConfluentModule;
+  const deadline = Date.now() + timeoutMs;
+  for (;;) {
+    const admin = new KafkaJS.Kafka({ kafkaJS: { brokers } }).admin();
+    try {
+      await withTimeout(() => admin.connect(), 15_000, 'admin connect');
+      await withTimeout(() => admin.listTopics(), 15_000, 'admin listTopics');
+      await admin.disconnect();
+      return;
+    } catch (error) {
+      try {
+        await admin.disconnect();
+      } catch {
+        // The admin never reached the broker; nothing to release.
+      }
+      if (Date.now() > deadline) {
+        throw new Error(
+          `Broker did not serve metadata again within ${timeoutMs}ms: ${String(error)}`,
+        );
+      }
+      await delay(1_000);
+    }
+  }
+}
+
+/**
+ * Produce `value` to `topic`, retrying only while the *send itself* rejects.
+ *
+ * Retrying on a rejected send rather than on non-delivery keeps the delivered
+ * count meaningful: once a send resolves the broker has accepted the record, so
+ * the test waits for delivery instead of producing the same value again.
+ */
+async function sendUntilAccepted(
+  producer: KafkaProducerService,
+  topic: string,
+  value: string,
+  timeoutMs = 120_000,
+): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
+  for (;;) {
+    try {
+      await producer.send({ topic, messages: [{ value }] });
+      return;
+    } catch (error) {
+      if (Date.now() > deadline) {
+        throw new Error(
+          `Producer never recovered after the restart: ${String(error)}`,
+        );
+      }
+      await delay(1_000);
+    }
   }
 }
 
@@ -386,6 +511,73 @@ describe('Kafka real-broker integration', { skip }, () => {
       await secondApp.close();
     }
   });
+
+  it(
+    'recovers the consumer and producer after the broker restarts',
+    { skip: skipRestart },
+    async () => {
+      const topic = unique('it.restart');
+      const groupId = unique('it-restart-group');
+      await createTopic(topic, 1);
+
+      @Injectable()
+      @KafkaConsumer(topic, { groupId })
+      class RestartConsumer {
+        constructor(private readonly sink: MessageSink) {}
+
+        @KafkaHandler()
+        handle(
+          @KafkaMessage() value: string,
+          @KafkaCtx() context: KafkaContext,
+        ) {
+          this.sink.record(value, context);
+        }
+      }
+
+      @Module({
+        imports: [
+          KafkaModule.forRoot({ clientId, client: { brokers }, driverFactory }),
+        ],
+        providers: [MessageSink, RestartConsumer],
+      })
+      class RestartModule {}
+
+      const app: TestingModule = await Test.createTestingModule({
+        imports: [RestartModule],
+      }).compile();
+      await app.init();
+
+      try {
+        const sink = app.get(MessageSink);
+        const producer = app.get(KafkaProducerService);
+
+        await warmUp(producer, sink, topic);
+
+        const beforeRestart = `before-restart-${randomUUID()}`;
+        await producer.send({ topic, messages: [{ value: beforeRestart }] });
+        await waitFor(() => sink.seen(beforeRestart));
+
+        // Take the broker down and bring it back underneath the running
+        // application. Nothing below restarts the Nest app, re-creates the
+        // producer, or re-subscribes the consumer: recovery has to come from
+        // the client itself.
+        await restartBroker();
+        await waitForBrokerReady();
+
+        const afterRestart = `after-restart-${randomUUID()}`;
+        await sendUntilAccepted(producer, topic, afterRestart);
+        await waitFor(() => sink.seen(afterRestart), { timeoutMs: 120_000 });
+
+        assert.equal(
+          sink.seen(beforeRestart),
+          true,
+          'the message delivered before the restart must not be lost',
+        );
+      } finally {
+        await app.close();
+      }
+    },
+  );
 
   before(() => {
     // Defensive: the suite must never run without a broker. (`skip` already

@@ -328,6 +328,9 @@ jobs:
       - name: Run the real-broker integration suite
         env:
           KAFKA_BROKERS: localhost:9092
+          # Lets the suite restart this container to prove the client recovers
+          # from a broker outage without the application restarting.
+          KAFKA_RESTART_CONTAINER: kafka
         run: npm run test:integration
 
       - name: Dump broker logs on failure

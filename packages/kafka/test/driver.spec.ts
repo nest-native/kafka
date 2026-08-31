@@ -3,6 +3,7 @@ import Module from 'node:module';
 import { afterEach, describe, it } from 'node:test';
 import {
   createConfluentDriver,
+  splitDriverConfig,
   KafkaDriverConsumer,
   KafkaDriverProducer,
 } from '../driver';
@@ -88,6 +89,69 @@ describe('createConfluentDriver', () => {
       { kafkaJS: { groupId: 'orders-svc' } },
       { kafkaJS: {} },
     ]);
+  });
+
+  it('routes raw librdkafka properties beside kafkaJS, not inside it', () => {
+    // Confluent's `CommonConstructorConfig` extends librdkafka's `GlobalConfig`
+    // *and* carries an optional `kafkaJS` key. Raw dotted properties nested
+    // inside `kafkaJS` are rejected by the compatibility layer at connect time
+    // with "The '<name>' property is not supported.", so they have to be
+    // hoisted to the top level for librdkafka to ever see them.
+    const constructorConfigs: unknown[] = [];
+    const producerConfigs: unknown[] = [];
+    const consumerConfigs: unknown[] = [];
+
+    class FakeKafka {
+      constructor(config?: unknown) {
+        constructorConfigs.push(config);
+      }
+
+      producer(config?: unknown): KafkaDriverProducer {
+        producerConfigs.push(config);
+        return {} as KafkaDriverProducer;
+      }
+
+      consumer(config?: unknown): KafkaDriverConsumer {
+        consumerConfigs.push(config);
+        return {} as KafkaDriverConsumer;
+      }
+    }
+
+    stubConfluentModule({ KafkaJS: { Kafka: FakeKafka } });
+
+    const driver = createConfluentDriver(
+      {
+        brokers: ['localhost:9092'],
+        'reconnect.backoff.ms': 250,
+        'socket.keepalive.enable': true,
+      },
+      { transactionalId: 'tx-1', 'message.timeout.ms': 30_000 },
+    );
+    driver.createProducer();
+    driver.createConsumer({ groupId: 'orders', 'fetch.wait.max.ms': 10 });
+
+    assert.deepEqual(constructorConfigs, [
+      {
+        'reconnect.backoff.ms': 250,
+        'socket.keepalive.enable': true,
+        kafkaJS: { brokers: ['localhost:9092'] },
+      },
+    ]);
+    assert.deepEqual(producerConfigs, [
+      { 'message.timeout.ms': 30_000, kafkaJS: { transactionalId: 'tx-1' } },
+    ]);
+    assert.deepEqual(consumerConfigs, [
+      { 'fetch.wait.max.ms': 10, kafkaJS: { groupId: 'orders' } },
+    ]);
+  });
+
+  it('leaves a config with no dotted properties nested exactly as before', () => {
+    // Guards the compatibility half of the change: existing callers who only
+    // ever passed KafkaJS-style options must see byte-identical behaviour.
+    assert.deepEqual(splitDriverConfig({ brokers: ['b'], clientId: 'c' }), {
+      kafkaJS: { brokers: ['b'], clientId: 'c' },
+    });
+    assert.deepEqual(splitDriverConfig({}), { kafkaJS: {} });
   });
 
   it('throws a descriptive error when the optional peer is not installed', () => {
