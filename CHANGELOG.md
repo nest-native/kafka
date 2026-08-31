@@ -51,6 +51,50 @@ package release is useful for users.
   the real-broker suite was the first thing that could see it. The field on
   `KafkaSubscription` is now documented as unusable and deprecated.
 
+## 0.5.0
+
+### Added
+
+- **Opt-in request-reply** ([ADR 0001](docs/adr/0001-request-reply.md)). Every
+  `@MessagePattern` user of `@nestjs/microservices` was previously unable to
+  migrate to this package at all: `ClientKafka.send()` is request-reply, and the
+  migration guide's answer was to hand-roll correlation. Now
+  `KafkaRequestReplyService.request<T>()` issues a request with a default 30s
+  timeout and `AbortSignal` support, and `@KafkaHandler(topic, { reply: true })`
+  answers with the handler's post-enhancer return value.
+
+  `@KafkaHandler` stays fire-and-forget by default and the client side is inert
+  until `requestReply` is configured, so nothing changes for existing users.
+  Kafka-as-RPC remains an anti-pattern this package does not argue away — the
+  feature is a bounded migration bridge, and the docs say when not to reach for
+  it.
+
+  **Routing:** one shared reply topic consumed by a unique single-member
+  ephemeral consumer group per instance, filtered by correlation id. The
+  official transport's partition-per-instance design needs a custom partition
+  assigner `librdkafka` cannot express, couples partition count to replica
+  count, and loses in-flight replies on rebalance. A group of one has nothing to
+  rebalance. The cost is N× reply fan-out, which is linear, documented with
+  arithmetic, and the reason the strategy seam exists.
+
+  **Interop is proven byte-level against the real `@nestjs/microservices`**, in
+  both directions, in CI: our `request()` answered by a `ServerKafka`
+  `@MessagePattern` handler, and a real `ClientKafka.send()` answered by a
+  `reply: true` handler. Header keys default to the official `kafka_*` names and
+  are configurable.
+
+  **The reply path is at-most-once and a timeout means "unknown outcome"** —
+  never "it did not happen". There are no transport-level retries; re-sending is
+  the caller's decision. The `errorMapper` contract is unchanged: `'commit'`
+  sends an error reply, `'retry'` sends none and lets the broker redeliver.
+
+### Fixed
+
+- **The in-memory broker invented partitions from the array index** in
+  per-message delivery, ignoring `message.partition` — while batch delivery read
+  it correctly. Any test asserting per-message partitions was being told a
+  number the producer never chose.
+
 ## 0.4.1
 
 ### Fixed
