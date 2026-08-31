@@ -43,6 +43,9 @@ import {
   defaultKafkaErrorMapper,
   KafkaErrorMapper,
 } from './kafka-error-mapping';
+import { KafkaProducerService } from './kafka-producer.service';
+import { KafkaReplyPublisher } from './kafka-reply-publisher';
+import { resolveHeaderKeys } from './kafka-request-reply.protocol';
 import { KAFKA_CLIENT_DRIVER, KAFKA_MODULE_OPTIONS } from './tokens';
 
 /** Default partitions-consumed-concurrently: ordered, one partition at a time. */
@@ -63,9 +66,12 @@ interface DiscoveredHandler {
   topic: string;
   groupId?: string;
   batch: boolean;
+  reply: boolean;
   concurrency: number;
   maxInFlight: number;
   run: (invocation: KafkaHandlerInvocation) => Promise<unknown>;
+  /** Only used to name the offending method in bootstrap validation errors. */
+  describe: string;
 }
 
 /**
@@ -103,6 +109,7 @@ export class KafkaConsumerExplorer
   private readonly consumers: KafkaDriverConsumer[] = [];
   private readonly dispatchers: KafkaDispatcher[] = [];
   private readonly errorMapper: KafkaErrorMapper;
+  private readonly replier: KafkaReplyPublisher;
 
   constructor(
     private readonly metadataScanner: MetadataScanner,
@@ -112,11 +119,20 @@ export class KafkaConsumerExplorer
     private readonly moduleRef: ModuleRef,
     @Inject(KAFKA_CLIENT_DRIVER) private readonly driver: KafkaClientDriver,
     @Inject(KAFKA_MODULE_OPTIONS) private readonly options: KafkaModuleOptions,
+    producer: KafkaProducerService,
   ) {
     this.contextCreator = new KafkaContextCreator(
       createKafkaEnhancerRuntime(this.modulesContainer, this.applicationConfig),
     );
     this.errorMapper = this.options.errorMapper ?? defaultKafkaErrorMapper;
+    // A replier is configuration-free by design: it answers wherever the
+    // request's headers say. Only the header *keys* are configurable, and they
+    // default to the `@nestjs/microservices` ones, so a migrated handler
+    // answers an un-migrated caller with no module options at all.
+    this.replier = new KafkaReplyPublisher(
+      producer,
+      resolveHeaderKeys(this.options.requestReply?.headers),
+    );
   }
 
   /**
@@ -129,6 +145,7 @@ export class KafkaConsumerExplorer
     if (handlers.length === 0) {
       return;
     }
+    this.assertOneReplierPerTopic(handlers);
     await this.startConsumers(handlers);
   }
 
@@ -214,11 +231,20 @@ export class KafkaConsumerExplorer
       throw this.missingTopicError(params.metatype.name, params.methodName);
     }
 
+    const describe = `${params.metatype.name}.${params.methodName}`;
+    const batch = handlerMeta.options.batch ?? false;
+    const reply = handlerMeta.options.reply ?? false;
+    if (batch && reply) {
+      throw this.batchReplyError(describe);
+    }
+
     params.handlers.push({
       topic,
+      describe,
       groupId:
         handlerMeta.options.groupId ?? params.consumerMeta.options.groupId,
-      batch: handlerMeta.options.batch ?? false,
+      batch,
+      reply,
       concurrency: this.resolve(
         'concurrency',
         handlerMeta,
@@ -355,7 +381,12 @@ export class KafkaConsumerExplorer
     this.consumers.push(consumer);
 
     const maxInFlight = Math.max(...handlers.map(handler => handler.maxInFlight));
-    const dispatcher = new KafkaDispatcher(routes, this.errorMapper, maxInFlight);
+    const dispatcher = new KafkaDispatcher(
+      routes,
+      this.errorMapper,
+      maxInFlight,
+      this.replier,
+    );
     this.dispatchers.push(dispatcher);
 
     await consumer.connect();
@@ -407,10 +438,50 @@ export class KafkaConsumerExplorer
     return routes;
   }
 
+  /**
+   * Two replying handlers on one topic means two replies per request; the second
+   * one always loses the correlation race and is dropped. Refusing to start
+   * beats shipping that heisenbug.
+   */
+  private assertOneReplierPerTopic(handlers: DiscoveredHandler[]): void {
+    const repliers = new Map<string, string>();
+    for (const handler of handlers) {
+      if (!handler.reply) {
+        continue;
+      }
+      const existing = repliers.get(handler.topic);
+      if (existing !== undefined) {
+        throw this.duplicateReplierError(handler.topic, existing, handler.describe);
+      }
+      repliers.set(handler.topic, handler.describe);
+    }
+  }
+
   private missingTopicError(className: string, methodName: string): Error {
     return new Error(
       `Kafka handler ${className}.${methodName} has no topic. Pass a topic to ` +
         '@KafkaHandler("topic") or set a default topic on @KafkaConsumer("topic").',
+    );
+  }
+
+  private batchReplyError(handler: string): Error {
+    return new Error(
+      `Kafka handler ${handler} declares both "batch: true" and ` +
+        '"reply: true". A batch has no single request to answer, so the ' +
+        'combination is not supported — drop one of the two flags.',
+    );
+  }
+
+  private duplicateReplierError(
+    topic: string,
+    first: string,
+    second: string,
+  ): Error {
+    return new Error(
+      `Kafka handlers ${first} and ${second} both declare "reply: true" for ` +
+        `topic "${topic}". Two repliers answer every request twice and the ` +
+        'second reply always loses the correlation race — route exactly one ' +
+        'replying handler per topic.',
     );
   }
 }

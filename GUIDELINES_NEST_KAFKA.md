@@ -102,7 +102,13 @@ deliver on Confluent's officially supported client, never hide Kafka semantics.
 - Graceful shutdown order: stop accepting new claims → drain in-flight →
   disconnect.
 - Header conventions stay neutral; do not standardize `traceId` /
-  `correlationId` / `messageType` keys.
+  `correlationId` / `messageType` keys. **One bounded exception:** the opt-in
+  request-reply feature cannot be header-neutral — a reply address and a
+  correlation id have to live somewhere with agreed names — so its keys are part
+  of *its* contract and are configurable (`requestReply.headers`), defaulting to
+  `@nestjs/microservices`' own names for interop. The exception is scoped to
+  request-reply; general messaging stays neutral, and `KafkaContext.getHeaders()`
+  still returns the raw map untouched. See §12 and ADR 0001 §4.
 - A permanent kafkajs compatibility shim is NOT a feature. Migration
   ergonomics yes; permanent dual-runtime support no.
 - Keep the package lean — minimal runtime dependencies. Published
@@ -218,9 +224,31 @@ deliver on Confluent's officially supported client, never hide Kafka semantics.
 
 ### 12. Accumulated Project Decisions
 
-(Empty at v0; grows as the project lands decisions worth preserving. Append
-entries here when an architectural call repeats or is non-obvious. Each
-entry should be one short paragraph with rationale.)
+(Grows as the project lands decisions worth preserving. Append entries here when
+an architectural call repeats or is non-obvious. Each entry should be one short
+paragraph with rationale.)
+
+**Request-reply is an opt-in bridge, and the event log stays the default**
+(ADR 0001, `docs/adr/0001-request-reply.md`). Kafka-as-RPC is an anti-pattern
+this package does not argue away — but a documented migration path from
+`@nestjs/microservices` is a headline promise, and without request-reply that
+promise excluded every `@MessagePattern` user. So it ships, bounded: `@KafkaHandler`
+stays fire-and-forget unless a handler declares `reply: true`, and the client side
+does nothing at all unless `requestReply` is configured. Two decisions inside it
+are load-bearing and must not be undone casually. **Reply routing** is one shared
+reply topic consumed by a unique single-member ephemeral group per instance
+(`<replyTopic>-<uuid>`), filtering by correlation id — the official transport's
+partition-per-instance design depends on a custom partition assigner that
+librdkafka cannot express, couples partition count to replica count, and loses
+in-flight replies on rebalance. The chosen strategy's correctness argument is the
+*absence* of machinery: a group of one has nothing to rebalance. Its cost is N×
+reply fan-out, which is linear and documented; the strategy seam is the planned
+exit if that ever bites. **The reply path is at-most-once and a timeout means
+"unknown outcome"** — never "it did not happen" — and the docs, the error
+messages, and the absence of transport-level retries all have to keep saying so.
+The `errorMapper` contract is unchanged by the feature: `'commit'` means done, so
+an error reply is sent; `'retry'` means not done yet, so no reply exists to send
+and the broker redelivers.
 
 ## Local Full-Mode Verification (optional infra + mutation testing)
 
