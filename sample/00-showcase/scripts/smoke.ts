@@ -26,9 +26,52 @@ async function smoke(): Promise<void> {
   const log = app.get(MessageLog);
   log.reset();
 
-  await orders.placeOrder({ id: 'order-1', tenant: 'acme', amount: 4200 });
-  await orders.placeOrder({ id: 'order-2', tenant: 'globex', amount: 1300 });
-  await orders.placeOrder({ id: 'order-3' }); // missing tenant → guard blocks
+  const first = await orders.placeOrder({
+    id: 'order-1',
+    tenant: 'acme',
+    amount: 4200,
+    sku: 'widget',
+    quantity: 2,
+  });
+  await orders.placeOrder({
+    id: 'order-2',
+    tenant: 'globex',
+    amount: 1300,
+    sku: 'widget',
+    quantity: 1,
+  });
+  // Missing tenant → inventory still answers, then the guard blocks it.
+  await orders.placeOrder({ id: 'order-3', sku: 'widget', quantity: 1 });
+  // Out of stock → a successful request whose answer is "no". The order is
+  // never published, so nothing downstream of it runs.
+  const refused = await orders.placeOrder({
+    id: 'order-4',
+    tenant: 'acme',
+    amount: 900,
+    sku: 'gizmo',
+    quantity: 1,
+  });
+
+  // Request-reply: the publish decision came from a reply, not a guess.
+  assert.equal(first, true, 'an in-stock answer must let the order through');
+  assert.equal(refused, false, 'an out-of-stock answer must stop the publish');
+  assert.equal(
+    log.stockChecks.length,
+    4,
+    'every order asked inventory, including the one that was refused',
+  );
+  assert.equal(
+    log.stockChecks.some(
+      check => check.includes('gizmo') && check.includes('unavailable'),
+    ),
+    true,
+    'the replying handler answered the out-of-stock query',
+  );
+  assert.equal(
+    log.handledOrders.includes('order-4'),
+    false,
+    'a refused order must never reach the orders handler',
+  );
 
   // Two valid orders reached the handler; the tenant-less one was blocked.
   assert.deepEqual(log.handledOrders, ['order-1', 'order-2']);

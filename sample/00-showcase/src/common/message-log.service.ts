@@ -11,11 +11,16 @@ export class MessageLog {
   readonly notifications: string[] = [];
   readonly pipeline: string[] = [];
   readonly auditedBy: string[] = [];
+  /** Stock checks answered by the replying handler, and their outcome. */
+  readonly stockChecks: string[] = [];
 
   /** One entry per aggregated batch: the partition and how many events it held. */
   readonly batches: { partition: number; count: number }[] = [];
 
-  record(channel: 'handledOrders' | 'notifications' | 'pipeline', value: string): void {
+  record(
+    channel: 'handledOrders' | 'notifications' | 'pipeline' | 'stockChecks',
+    value: string,
+  ): void {
     this[channel].push(value);
   }
 
@@ -32,6 +37,7 @@ export class MessageLog {
     this.notifications.length = 0;
     this.pipeline.length = 0;
     this.auditedBy.length = 0;
+    this.stockChecks.length = 0;
     this.batches.length = 0;
   }
 }
