@@ -32,6 +32,33 @@ describe('InMemoryKafkaBroker', () => {
     assert.equal(received[0].message.offset, '0');
   });
 
+  it('honours an explicit partition in per-message delivery', async () => {
+    const driver = broker.createDriver();
+    const received: KafkaEachMessagePayload[] = [];
+
+    const consumer = driver.createConsumer();
+    await consumer.subscribe({ topics: ['orders'] });
+    await consumer.run({ eachMessage: async payload => void received.push(payload) });
+
+    await driver.createProducer().send({
+      topic: 'orders',
+      messages: [{ partition: 5, value: 'targeted' }, { value: 'default' }],
+    });
+
+    // Deriving the partition from the array index — as this did until 0.5.0 —
+    // would report [0, 1]: partitions no producer asked for, and no way to
+    // assert reply-partition targeting in-memory.
+    assert.deepEqual(
+      received.map(payload => payload.partition),
+      [5, 0],
+    );
+    // Offsets still follow delivery order, independent of the partition.
+    assert.deepEqual(
+      received.map(payload => payload.message.offset),
+      ['0', '1'],
+    );
+  });
+
   it('does not deliver to a consumer subscribed to another topic', async () => {
     const driver = broker.createDriver();
     let calls = 0;
