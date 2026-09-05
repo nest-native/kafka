@@ -7,7 +7,7 @@ the package's published peer ranges.
 
 | Item | Supported |
 | --- | --- |
-| Node.js | `>=20` |
+| Node.js | `>=22` |
 | NestJS | `11.x` |
 | `@confluentinc/kafka-javascript` | `^1.9` (pin the major; it tracks librdkafka) |
 | TypeScript | `^6` |
