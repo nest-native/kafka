@@ -77,7 +77,7 @@ This package's headline differentiators:
 
 | Runtime | Supported line |
 | --- | --- |
-| Node.js | `>=20` |
+| Node.js | `>=22` |
 | NestJS | `11.x` |
 | `@confluentinc/kafka-javascript` | `^1.9` (pin major; tracks librdkafka) |
 | Validation | class-validator and Zod, both app-owned |

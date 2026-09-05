@@ -44,7 +44,7 @@
     "test:peer-drift": "TS_NODE_PROJECT=tsconfig.spec.json node --require ts-node/register --require reflect-metadata --test packages/kafka/test/rdkafka-property-drift.spec.ts"
   },
   "engines": {
-    "node": ">=20"
+    "node": ">=22"
   },
   "scarfSettings": {
     "enabled": false

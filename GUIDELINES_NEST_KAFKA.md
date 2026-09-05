@@ -16,7 +16,7 @@ deliver on Confluent's officially supported client, never hide Kafka semantics.
   solving its correctness issues (sequential per-topic processing, rebalance
   hangs, exception swallowing).
 - Current stabilization support line:
-  - Node.js `>=20`
+  - Node.js `>=22`
   - NestJS `11.x`
   - `@confluentinc/kafka-javascript` `^1.9`
 - Full integration with NestJS enhancer pipeline is NON-NEGOTIABLE:
