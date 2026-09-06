@@ -8,10 +8,17 @@ the package's published peer ranges.
 | Item | Supported |
 | --- | --- |
 | Node.js | `>=22` |
-| NestJS | `11.x` |
+| NestJS | `^11.0.0 \|\| ^12.0.0` |
 | `@confluentinc/kafka-javascript` | `^1.9` (pin the major; it tracks librdkafka) |
 | TypeScript | `^6` |
 | Validation | `class-validator` and Zod, both app-owned |
+
+Both ends of the NestJS range are tested, not assumed: the default lockfile
+keeps the suite on 11.x, and a dedicated CI leg installs `@nestjs/*@^12` on
+top of it and runs the unit suite and the sample matrix. NestJS 12 is
+ESM-only; loading it from CommonJS code (this package, and every sample)
+goes through Node's `require(esm)`, which is unflagged on Node.js `>=22.12`
+(and `>=20.19`), so run NestJS 12 on a current Node 22 or 24.
 
 ## Peer Dependencies
 

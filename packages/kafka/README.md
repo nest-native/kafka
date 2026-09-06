@@ -39,8 +39,8 @@ pipeline (guards, pipes, interceptors, filters) intact on handler methods.
 
 | Runtime | Supported line |
 | --- | --- |
-| Node.js | `>=20` |
-| NestJS | `11.x` |
+| Node.js | `>=22` |
+| NestJS | `^11.0.0 \|\| ^12.0.0` |
 | `@confluentinc/kafka-javascript` | `^1.9` (pin major; tracks librdkafka) |
 | Validation | class-validator and Zod, both app-owned |
 

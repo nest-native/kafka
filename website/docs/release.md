@@ -28,7 +28,7 @@ before it can be published. Version badges must stay dynamic
 1. Land all milestone work on `main` through reviewed pull requests.
 2. Bump `packages/kafka/package.json` and the sample versions together.
 3. Update `CHANGELOG.md`: move the `Unreleased` entries under the new version.
-4. Run `npm run ci` and confirm green on Node 20 and 22.
+4. Run `npm run ci` and confirm green on Node 22 and 24.
 5. Tag the release (for `0.3.0`, a lightweight `v0.3.0` tag on `main`).
 
 ## The 0.x Release Line
