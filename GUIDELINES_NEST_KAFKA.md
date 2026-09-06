@@ -16,9 +16,19 @@ deliver on Confluent's officially supported client, never hide Kafka semantics.
   solving its correctness issues (sequential per-topic processing, rebalance
   hangs, exception swallowing).
 - Current stabilization support line:
-  - Node.js `>=22`
-  - NestJS `11.x`
+  - Node.js `>=22` (`>=22.12` on the NestJS 12 end: 12 is ESM-only and
+    `require(esm)` is behind a flag before 22.12.0; `engines` stays `>=22`
+    for the 11 end)
+  - NestJS `^11.0.0 || ^12.0.0`
   - `@confluentinc/kafka-javascript` `^1.9`
+- **Peer majors are widened, never swapped.** When a peer ships a new major,
+  the published `peerDependencies` range widens to include it, the
+  devDependency (and therefore the lockfile every default CI job installs)
+  stays on the older major so the default suite keeps testing that end, and a
+  dedicated CI leg installs the newer major with `--no-save` and runs the
+  suite and the samples. Both ends of the range are then tested claims. A
+  dependabot PR that moves the devDependency to the new major is not how a
+  major gets adopted — see §12.
 - Full integration with NestJS enhancer pipeline is NON-NEGOTIABLE:
   - `@UseGuards`, `@UseInterceptors`, `@UsePipes`, `@UseFilters` must work on
     handler methods.
@@ -298,6 +308,63 @@ show that. The rule that follows: when a change starts calling a driver method
 with a new argument, or depends on real group-assignment timing, the
 `KAFKA_BROKERS`-gated suite gets a case for it in the same PR — unit coverage of
 that code proves only that we called ourselves consistently.
+
+**NestJS majors are adopted by widening the peer range, and the `@nestjs/*`
+devDependencies stay on the older major.** NestJS 12 (2026-08) was added as
+`^11.0.0 || ^12.0.0` on `@nestjs/common`, `@nestjs/core`, and
+`@nestjs/microservices`, with the devDependencies and the lockfile left on 11.x
+and a `nestjs-latest-major` CI leg that installs 12 on top of that lockfile
+(`npm install --no-save --workspaces --include-workspace-root`, because the
+samples pin `@nestjs/*` exactly and a root-only install leaves them a nested
+11) and runs the unit suite, the package build, and the sample matrix. The
+leg asserts from inside every workspace that `@nestjs/core` resolves to 12
+before it runs anything, so a hoisting accident cannot turn it into a second
+11 leg. Dependabot cannot deliver a NestJS major: the `@nestjs/*` packages peer
+on each other, so one-package-per-PR bumps fail `npm ci` with ERESOLVE before
+a single test runs (NestJS 12 opened fifteen such PRs across the org). The
+remedy is a dependabot group that carries majors, so the next major arrives
+as one PR whose result carries information; PR #58 adds that group to
+`.github/dependabot.yml` in its own change, and every `@nestjs/*` package
+the repo declares must be listed in it. Even that PR is evidence for the
+peer-widening recipe above, not a replacement for it.
+
+**NestJS 12 is ESM-only: never import a directory index from `@nestjs/*`.**
+`@nestjs/common` and `@nestjs/core` 12 ship an exports map of
+`{".", "./internal", "./*.js", "./*": "./*.js"}`. Every deep import of a *file*
+this package makes into `@nestjs/core` (`injector/constants`,
+`helpers/execution-context-host`, the guard/pipe/interceptor consumers and
+context creators, ...) still resolves under it; a deep import of a *directory*
+does not, because there is no `<dir>.js` and ESM never completes a directory
+to its `index`. `@nestjs/common/interfaces` was the one such import in the
+package, and on 12 it was the whole failure: four sites, a `TS2307` on the
+build, and 10 of the 21 spec files unable to load (111 of 121 tests).
+`Controller` is now a local alias in
+`kafka-params.resolver.ts` (plain `object`, exactly what `@nestjs/common@12`
+declares; the type is not re-exported from the `@nestjs/common` root). The
+rule is enforced by `test/nestjs-deep-imports.spec.ts`, which scans every
+`@nestjs/<pkg>/<subpath>` import under `packages/kafka` and requires the
+subpath to name a file (`.js` / `.ts` / `.d.ts`) inside the installed package.
+It fails on both majors, which matters because on the 11.x install the trap is
+otherwise invisible. Do not reach for
+`@nestjs/common/interfaces/controllers/controller.interface` as a workaround —
+that is still an internal path, and 12 defines the type as `object` anyway.
+
+**Lifecycle-hook order across providers is not a contract.** NestJS 12
+reordered lifecycle hooks (`onModuleInit`, `onApplicationBootstrap`,
+`onModuleDestroy`, `beforeApplicationShutdown`, `onApplicationShutdown`) by
+the component's level in the module hierarchy, so the order in which two
+providers see the *same* hook differs between 11 and 12. What did not change
+is the phase order — every `onModuleInit` still completes before any
+`onApplicationBootstrap` — and that is the only sequencing this package relies
+on: `KafkaRequestReplyService.onApplicationBootstrap` starts the reply
+consumer knowing `KafkaProducerService.onModuleInit` has already connected the
+shared producer. Nothing assumes an order among providers within a phase, and
+nothing may start to: the explorer's "stop claiming, drain in-flight, then
+disconnect" shutdown order lives inside its own `onApplicationShutdown`, not
+across providers, and a change that needs another provider's same-phase hook
+to have run first must express that as a dependency (inject it, or move the
+work to an earlier phase) rather than as an assumption about hook sequencing.
+No test asserts a within-phase hook order, and none should.
 
 ## Local Full-Mode Verification (optional infra + mutation testing)
 

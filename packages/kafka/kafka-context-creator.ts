@@ -1,11 +1,11 @@
 import { ContextType, ForbiddenException, PipeTransform } from '@nestjs/common';
 import { RouteParamtypes } from '@nestjs/common/enums/route-paramtypes.enum';
-import { Controller } from '@nestjs/common/interfaces';
 import { ExecutionContextHost } from '@nestjs/core/helpers/execution-context-host';
 import { STATIC_CONTEXT } from '@nestjs/core/injector/constants';
 import { isObservable, lastValueFrom } from 'rxjs';
 import { KafkaBatchContext, KafkaContext } from './kafka-context';
 import {
+  Controller,
   KafkaParamsPipes,
   KafkaParamsResolver,
 } from './kafka-params.resolver';

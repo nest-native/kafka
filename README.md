@@ -77,10 +77,15 @@ This package's headline differentiators:
 
 | Runtime | Supported line |
 | --- | --- |
-| Node.js | `>=22` |
-| NestJS | `11.x` |
+| Node.js | `>=22` (`>=22.12` with NestJS 12 — see the note below the table) |
+| NestJS | `^11.0.0 \|\| ^12.0.0` |
 | `@confluentinc/kafka-javascript` | `^1.9` (pin major; tracks librdkafka) |
 | Validation | class-validator and Zod, both app-owned |
+
+NestJS 11 runs on any Node.js `>=22`. NestJS 12 is ESM-only, and this package
+loads it through Node's `require(esm)`, which is behind a flag before Node.js
+22.12.0 — so the 12 end of the range needs Node.js `>=22.12`. `engines` stays
+`>=22` because the 11 end does not need more.
 
 The published package keeps `"dependencies": {}`. The Confluent client and the
 NestJS packages are declared as `peerDependencies`, so applications install only
@@ -218,12 +223,16 @@ alongside the KafkaJS-style options — see
 The repository ships the same review posture as its sibling `@nest-native`
 packages, using `node:test` and `c8`:
 
-- package build, typecheck, and coverage on Node.js 20 and 22
+- package build and typecheck on Node.js 22 and 24; tests and coverage, and
+  every other job, on Node.js 22
 - coverage with `c8`, enforced at 100% for statements, branches, functions, and lines
 - sticky PR comments for coverage, test performance, and cognitive complexity
 - cognitive complexity enforcement with SonarJS threshold `15`
 - package tarball validation and README link validation
 - supply-chain audit for high-severity issues
+- a NestJS 12 compatibility leg that installs `@nestjs/*@^12` on top of the
+  11.x lockfile (`--no-save`, every workspace) and runs the unit suite and the
+  sample matrix, so both ends of the published peer range are tested claims
 - a real-broker integration job that runs a produce → consume round-trip, a
   transactional commit, per-topic concurrency, and a **broker restart** against
   a single-node KRaft Kafka (skipped locally unless `KAFKA_BROKERS` is set;

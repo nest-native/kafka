@@ -203,6 +203,59 @@ jobs:
             test-step-duration-ms.txt
           if-no-files-found: error
 
+  nestjs-latest-major:
+    name: NestJS 12 compatibility (Node 22)
+    runs-on: ubuntu-latest
+    # The published peer range allows @nestjs/* ^11 || ^12, but the
+    # devDependencies and the lockfile every other job installs stay on 11.x so
+    # the default suite keeps testing the older end. This leg installs 12 on
+    # top of that lockfile with --no-save and runs the unit suite and the
+    # sample matrix, which makes the 12 end of the range a tested claim rather
+    # than an assumption. --workspaces matters: the samples pin @nestjs/* to an
+    # exact 11.x, and a root-only install would leave them a nested 11 while
+    # the root moved to 12.
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '22'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Install NestJS 12 (this job only, never saved)
+        run: |
+          npm install --no-save --workspaces --include-workspace-root \
+            @nestjs/common@^12.0.0 \
+            @nestjs/core@^12.0.0 \
+            @nestjs/microservices@^12.0.0 \
+            @nestjs/testing@^12.0.0
+
+      - name: Prove the package and every sample resolve NestJS 12
+        # NestJS 12 does not export ./package.json, so the version is read next
+        # to the resolved entry point, from inside each workspace directory.
+        run: |
+          for dir in packages/kafka sample/*/; do
+            (
+              cd "$dir" && node -e "
+                const path = require('node:path');
+                const root = path.dirname(require.resolve('@nestjs/core'));
+                const { version } = require(path.join(root, 'package.json'));
+                console.log(process.cwd(), '@nestjs/core', version, '<-', root);
+                if (!version.startsWith('12.')) process.exit(1);
+              "
+            )
+          done
+
+      - name: Run the unit suite against NestJS 12
+        run: npm test
+
+      - name: Build the package against NestJS 12
+        run: npm run build --workspace @nest-native/kafka
+
+      - name: Run the sample matrix against NestJS 12
+        run: npm run ci:sample
+
   release-and-security:
     name: Release and security checks
     runs-on: ubuntu-latest

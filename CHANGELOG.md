@@ -8,6 +8,27 @@ package release is useful for users.
 
 ## Unreleased
 
+### Changed
+
+- **NestJS 12 is supported.** The `@nestjs/common`, `@nestjs/core`, and
+  `@nestjs/microservices` peer ranges widen from `^11.0.0` to
+  `^11.0.0 || ^12.0.0`. NestJS 12 is ESM-only with an exports map, under which
+  `@nestjs/common/interfaces` — a directory, and this package's only directory
+  import into `@nestjs/*` — no longer resolves. That one import was the whole
+  failure on 12: four sites, a `TS2307` on the build, and 10 of the 21 spec
+  files unable to load (111 of 121 tests). Every other deep import names a
+  file and still resolves. `Controller` is now a local
+  alias (plain `object`, exactly what `@nestjs/common@12` declares), so the
+  published `.d.ts` files no longer reference that path either. A new test
+  scans every `@nestjs/*` deep import and requires it to name a file, and a
+  dedicated CI leg installs 12 on top of the 11.x lockfile in every workspace
+  and runs the unit suite, the build, and the sample matrix, so both ends of
+  the range are tested. The devDependencies stay on 11.x. The 12 end of the
+  range needs Node.js `>=22.12`, where `require(esm)` is no longer behind a
+  flag; `engines` stays `>=22` because the 11 end does not need more. NestJS
+  12 also reordered lifecycle hooks across providers; nothing here depends on
+  a cross-provider hook order.
+
 ### Added
 
 - **Request-reply, as an opt-in migration bridge** (ADR 0001,

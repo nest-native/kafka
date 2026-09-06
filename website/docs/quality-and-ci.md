@@ -1,7 +1,9 @@
 # Quality and CI
 
 The package ships with the same quality bar as the rest of the nest-native
-family. `npm run ci` runs the whole gate locally; CI runs it on Node 20 and 22.
+family. `npm run ci` runs the whole gate locally. CI runs the same steps as
+separate jobs, every one of them on Node 22; only the package build and
+typecheck job additionally runs on Node 24.
 
 ## The Gate
 
@@ -35,6 +37,23 @@ Version drift between `packages/kafka` and `sample/*` is a release blocker. When
 the package version bumps, every `sample/*/package.json` entry for
 `@nest-native/kafka` updates in the same change, `package-lock.json` is
 regenerated, and `release:check` validates the sync. See the [Release Guide](release.md).
+
+## NestJS 12 Compatibility Leg
+
+The published peer range is `^11.0.0 || ^12.0.0`, but the devDependencies and
+the lockfile stay on 11.x so the default suite keeps testing the older end. A
+dedicated `nestjs-latest-major` job installs `@nestjs/common`, `@nestjs/core`,
+`@nestjs/microservices`, and `@nestjs/testing` at `^12` on top of that lockfile
+(`npm install --no-save --workspaces --include-workspace-root`, so the samples
+move too instead of keeping a nested 11), asserts from inside every workspace
+that `@nestjs/core` resolves to 12, and then runs the unit suite, the package
+build, and the sample matrix. Both ends of the range are tested claims.
+
+NestJS 12 is ESM-only with an exports map, under which a deep import of a
+*directory* inside `@nestjs/*` no longer resolves. The unit suite includes a
+guard (`packages/kafka/test/nestjs-deep-imports.spec.ts`) that scans every
+`@nestjs/<pkg>/<subpath>` import in the package and requires the subpath to be
+a file, so the trap cannot come back on the 11.x install where it is invisible.
 
 ## Driver-Backed Integration
 
