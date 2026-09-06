@@ -16,7 +16,9 @@ deliver on Confluent's officially supported client, never hide Kafka semantics.
   solving its correctness issues (sequential per-topic processing, rebalance
   hangs, exception swallowing).
 - Current stabilization support line:
-  - Node.js `>=22`
+  - Node.js `>=22` (`>=22.12` on the NestJS 12 end: 12 is ESM-only and
+    `require(esm)` is behind a flag before 22.12.0; `engines` stays `>=22`
+    for the 11 end)
   - NestJS `^11.0.0 || ^12.0.0`
   - `@confluentinc/kafka-javascript` `^1.9`
 - **Peer majors are widened, never swapped.** When a peer ships a new major,
@@ -320,10 +322,11 @@ before it runs anything, so a hoisting accident cannot turn it into a second
 11 leg. Dependabot cannot deliver a NestJS major: the `@nestjs/*` packages peer
 on each other, so one-package-per-PR bumps fail `npm ci` with ERESOLVE before
 a single test runs (NestJS 12 opened fifteen such PRs across the org). The
-peer group in `.github/dependabot.yml` therefore groups majors too, so the
-next major arrives as one PR whose result carries information — and even
-that PR is evidence for the peer-widening recipe above, not a replacement for
-it.
+remedy is a dependabot group that carries majors, so the next major arrives
+as one PR whose result carries information; PR #58 adds that group to
+`.github/dependabot.yml` in its own change, and every `@nestjs/*` package
+the repo declares must be listed in it. Even that PR is evidence for the
+peer-widening recipe above, not a replacement for it.
 
 **NestJS 12 is ESM-only: never import a directory index from `@nestjs/*`.**
 `@nestjs/common` and `@nestjs/core` 12 ship an exports map of

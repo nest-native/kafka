@@ -1,7 +1,9 @@
 # Quality and CI
 
 The package ships with the same quality bar as the rest of the nest-native
-family. `npm run ci` runs the whole gate locally; CI runs it on Node 22 and 24.
+family. `npm run ci` runs the whole gate locally. CI runs the same steps as
+separate jobs, every one of them on Node 22; only the package build and
+typecheck job additionally runs on Node 24.
 
 ## The Gate
 

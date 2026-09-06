@@ -23,9 +23,11 @@ package release is useful for users.
   scans every `@nestjs/*` deep import and requires it to name a file, and a
   dedicated CI leg installs 12 on top of the 11.x lockfile in every workspace
   and runs the unit suite, the build, and the sample matrix, so both ends of
-  the range are tested. The devDependencies stay on 11.x. NestJS 12 also
-  reordered lifecycle hooks across providers; nothing here depends on a
-  cross-provider hook order.
+  the range are tested. The devDependencies stay on 11.x. The 12 end of the
+  range needs Node.js `>=22.12`, where `require(esm)` is no longer behind a
+  flag; `engines` stays `>=22` because the 11 end does not need more. NestJS
+  12 also reordered lifecycle hooks across providers; nothing here depends on
+  a cross-provider hook order.
 
 ### Added
 
