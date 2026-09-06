@@ -1,7 +1,18 @@
 import { PipeTransform } from '@nestjs/common';
-import { Controller } from '@nestjs/common/interfaces';
 import { ContextUtils } from '@nestjs/core/helpers/context-utils';
 import { ExecutionContextHost } from '@nestjs/core/helpers/execution-context-host';
+
+/**
+ * The instance a handler method lives on — what Nest's own context creators
+ * call `Controller`. Declared locally rather than imported from
+ * `@nestjs/common/interfaces`: that path is a *directory*, and NestJS 12 is
+ * ESM-only with an exports map (`"./*": "./*.js"`) under which a directory
+ * import no longer resolves. File paths under `@nestjs/*` still do, and
+ * `test/nestjs-deep-imports.spec.ts` enforces that every deep import stays one.
+ * The shape matches `@nestjs/common@12`, which defines the type as plain
+ * `object`; the type is not re-exported from the `@nestjs/common` root.
+ */
+export type Controller = object;
 
 /**
  * The reflected metadata one custom parameter decorator stores on a handler

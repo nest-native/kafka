@@ -7,7 +7,6 @@ import {
   Type,
 } from '@nestjs/common';
 import { PARAMTYPES_METADATA } from '@nestjs/common/constants';
-import { Controller } from '@nestjs/common/interfaces';
 import {
   ApplicationConfig,
   MetadataScanner,
@@ -43,6 +42,7 @@ import {
   defaultKafkaErrorMapper,
   KafkaErrorMapper,
 } from './kafka-error-mapping';
+import { Controller } from './kafka-params.resolver';
 import { KafkaProducerService } from './kafka-producer.service';
 import { KafkaReplyPublisher } from './kafka-reply-publisher';
 import { resolveHeaderKeys } from './kafka-request-reply.protocol';

@@ -1,6 +1,5 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
-import { Controller } from '@nestjs/common/interfaces';
 import { ExecutionContextHost } from '@nestjs/core/helpers/execution-context-host';
 import { STATIC_CONTEXT } from '@nestjs/core/injector/constants';
 import { of } from 'rxjs';
@@ -10,6 +9,7 @@ import {
   KafkaHandlerContext,
 } from '../kafka-context-creator';
 import { KafkaContext } from '../kafka-context';
+import { Controller } from '../kafka-params.resolver';
 
 /**
  * A no-op enhancer runtime: no guards, interceptors, or pipes, and an exception
