@@ -8,6 +8,8 @@ package release is useful for users.
 
 ## Unreleased
 
+## 0.5.1
+
 ### Changed
 
 - **NestJS 12 is supported.** The `@nestjs/common`, `@nestjs/core`, and
@@ -174,7 +176,7 @@ package release is useful for users.
   recovery does *not* promise: produce calls during an outage can still fail,
   redelivery remains at-least-once, and a rebalance can move partitions.
 
-## Unreleased
+### Changed
 
 - Docs: the version literals in prose told the wrong story — both READMEs
   announced `Status: 0.1.1`, `CONTRIBUTING.md` said the package was published at
