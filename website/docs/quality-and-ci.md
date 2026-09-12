@@ -38,16 +38,41 @@ the package version bumps, every `sample/*/package.json` entry for
 `@nest-native/kafka` updates in the same change, `package-lock.json` is
 regenerated, and `release:check` validates the sync. See the [Release Guide](release.md).
 
-## NestJS 12 Compatibility Leg
+## NestJS Compatibility Matrix
 
 The published peer range is `^11.0.0 || ^12.0.0`, but the devDependencies and
-the lockfile stay on 11.x so the default suite keeps testing the older end. A
-dedicated `nestjs-latest-major` job installs `@nestjs/common`, `@nestjs/core`,
-`@nestjs/microservices`, and `@nestjs/testing` at `^12` on top of that lockfile
+the lockfile stay on an 11.x in the middle of it, so the default suite tests
+neither end. The `nestjs-compat` job is a matrix with one leg per end. Each leg
+installs `@nestjs/common`, `@nestjs/core`, `@nestjs/microservices`, and
+`@nestjs/testing` at that end on top of the lockfile
 (`npm install --no-save --workspaces --include-workspace-root`, so the samples
-move too instead of keeping a nested 11), asserts from inside every workspace
-that `@nestjs/core` resolves to 12, and then runs the unit suite, the package
-build, and the sample matrix. Both ends of the range are tested claims.
+move too instead of keeping a nested 11) and then runs the unit suite, the
+package build, and the sample matrix.
+
+| Leg | Installs | Why this version |
+| --- | --- | --- |
+| `11 floor` | `11.0.0`, pinned exactly | The oldest graph the range can produce. Nothing this package uses was added by a later 11.x: every `@nestjs/core` internal it deep-imports exists with the same signature at 11.0.0. An exact pin means a downgrade that silently no-ops fails instead of passing as "still 11". |
+| `12` | `^12.0.0` | The newest end; floats so a new 12.x patch is tested on the next run. |
+
+Before a leg runs anything, three gates prove the tree is the one it claims to
+test, because npm makes it easy to end up with another one:
+
+- the install log is grepped for `ERESOLVE`. A peer conflict npm can override
+  produces `npm warn ERESOLVE overriding peer dependency` and exit 0, and
+  neither `npm ls` nor `--strict-peer-deps` reports it afterwards;
+- `scripts/check-nestjs-resolution.mjs` resolves the framework packages from
+  inside every workspace and requires exactly the leg's version, from the
+  hoisted root copy — a nested copy fails even when its version is right;
+- the same script re-checks every peer range on `@nestjs/*` in the tree
+  (other `@nestjs/*` packages, and this package's own published range)
+  against the hoisted copy.
+
+The script also runs with no argument as part of `release:check`, against the
+lockfile, so a lockfile that drifts from what the workspaces declare is a
+release blocker. Both ends of the range are tested claims; the floor is an
+install-graph fact (the oldest versions npm can actually produce together),
+which is why it is pinned with its reason next to it rather than inferred from
+the peer string.
 
 NestJS 12 is ESM-only with an exports map, under which a deep import of a
 *directory* inside `@nestjs/*` no longer resolves. The unit suite includes a

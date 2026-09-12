@@ -230,9 +230,11 @@ packages, using `node:test` and `c8`:
 - cognitive complexity enforcement with SonarJS threshold `15`
 - package tarball validation and README link validation
 - supply-chain audit for high-severity issues
-- a NestJS 12 compatibility leg that installs `@nestjs/*@^12` on top of the
-  11.x lockfile (`--no-save`, every workspace) and runs the unit suite and the
-  sample matrix, so both ends of the published peer range are tested claims
+- a NestJS compatibility matrix that installs each end of the published peer
+  range on top of the 11.x lockfile (`--no-save`, every workspace) — `11.0.0`
+  pinned exactly, and `^12` — proves the resolved version and every `@nestjs/*`
+  peer range from inside every workspace, and runs the unit suite and the
+  sample matrix against it, so both ends of the range are tested claims
 - a real-broker integration job that runs a produce → consume round-trip, a
   transactional commit, per-topic concurrency, and a **broker restart** against
   a single-node KRaft Kafka (skipped locally unless `KAFKA_BROKERS` is set;
