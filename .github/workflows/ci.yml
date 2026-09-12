@@ -203,17 +203,44 @@ jobs:
             test-step-duration-ms.txt
           if-no-files-found: error
 
-  nestjs-latest-major:
-    name: NestJS 12 compatibility (Node 22)
+  nestjs-compat:
+    name: NestJS ${{ matrix.nest.label }} compatibility (Node 22)
     runs-on: ubuntu-latest
-    # The published peer range allows @nestjs/* ^11 || ^12, but the
-    # devDependencies and the lockfile every other job installs stay on 11.x so
-    # the default suite keeps testing the older end. This leg installs 12 on
-    # top of that lockfile with --no-save and runs the unit suite and the
-    # sample matrix, which makes the 12 end of the range a tested claim rather
-    # than an assumption. --workspaces matters: the samples pin @nestjs/* to an
-    # exact 11.x, and a root-only install would leave them a nested 11 while
-    # the root moved to 12.
+    # The published peer range is @nestjs/* ^11 || ^12. The devDependencies and
+    # the lockfile every other job installs stay on the 11.x in the middle of
+    # that range, so this matrix is what makes its two ENDS tested claims: each
+    # leg installs one end on top of the lockfile with --no-save and runs the
+    # unit suite, the package build, and the sample matrix against it.
+    #
+    # Three things keep a leg honest, because npm makes it easy to run a suite
+    # against a tree that is not the one you asked for:
+    # - --workspaces --include-workspace-root: the samples pin @nestjs/* to an
+    #   exact 11.x, and a root-only install leaves them a nested 11 while the
+    #   root moves.
+    # - the install log is grepped for ERESOLVE: when npm can override a peer
+    #   conflict it prints a warning and exits 0, and neither `npm ls` nor
+    #   --strict-peer-deps reports it afterwards.
+    # - scripts/check-nestjs-resolution.mjs proves the version from inside
+    #   every workspace (exactly, at the floor) and re-checks every peer range
+    #   on @nestjs/* against the hoisted copy.
+    # Node is not a dimension here on purpose: 22 floats to a current 22.x,
+    # which is what require(esm) on the 12 end needs (>=22.12), and the build
+    # job already covers 24.
+    strategy:
+      fail-fast: false
+      matrix:
+        nest:
+          # 11.0.0 is the oldest graph the published range can produce: nothing
+          # this package uses was added by a later 11.x — every @nestjs/core
+          # internal it deep-imports exists with the same signature at 11.0.0
+          # (nest commits adc7e1547, f98149853, c5b71643e, 762754607, 4d9c18801
+          # are additive). Pinned exactly so a downgrade that silently no-ops
+          # cannot pass as a floor run. @nestjs/testing is pinned with the
+          # rest: it is released in lockstep with core, and a floor leg with
+          # testing floating is not testing the floor.
+          - { label: '11 floor', spec: '11.0.0' }
+          # ^12.0.0 floats, so a new 12.x patch is tested on the next run.
+          - { label: '12', spec: '^12.0.0' }
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-node@v7
@@ -223,37 +250,33 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Install NestJS 12 (this job only, never saved)
+      - name: Install NestJS ${{ matrix.nest.label }} (this job only, never saved)
         run: |
           npm install --no-save --workspaces --include-workspace-root \
-            @nestjs/common@^12.0.0 \
-            @nestjs/core@^12.0.0 \
-            @nestjs/microservices@^12.0.0 \
-            @nestjs/testing@^12.0.0
+            "@nestjs/common@${{ matrix.nest.spec }}" \
+            "@nestjs/core@${{ matrix.nest.spec }}" \
+            "@nestjs/microservices@${{ matrix.nest.spec }}" \
+            "@nestjs/testing@${{ matrix.nest.spec }}" \
+            > "$RUNNER_TEMP/nestjs-install.log" 2>&1 || { cat "$RUNNER_TEMP/nestjs-install.log"; exit 1; }
+          cat "$RUNNER_TEMP/nestjs-install.log"
 
-      - name: Prove the package and every sample resolve NestJS 12
-        # NestJS 12 does not export ./package.json, so the version is read next
-        # to the resolved entry point, from inside each workspace directory.
+      - name: Fail on any peer conflict npm merely warned about
         run: |
-          for dir in packages/kafka sample/*/; do
-            (
-              cd "$dir" && node -e "
-                const path = require('node:path');
-                const root = path.dirname(require.resolve('@nestjs/core'));
-                const { version } = require(path.join(root, 'package.json'));
-                console.log(process.cwd(), '@nestjs/core', version, '<-', root);
-                if (!version.startsWith('12.')) process.exit(1);
-              "
-            )
-          done
+          if grep -E 'ERESOLVE' "$RUNNER_TEMP/nestjs-install.log"; then
+            echo "::error::npm overrode a peer dependency instead of failing; this tree is not the graph the leg claims to test"
+            exit 1
+          fi
 
-      - name: Run the unit suite against NestJS 12
+      - name: Prove every workspace resolves NestJS ${{ matrix.nest.label }}
+        run: node scripts/check-nestjs-resolution.mjs "${{ matrix.nest.spec }}"
+
+      - name: Run the unit suite against NestJS ${{ matrix.nest.label }}
         run: npm test
 
-      - name: Build the package against NestJS 12
+      - name: Build the package against NestJS ${{ matrix.nest.label }}
         run: npm run build --workspace @nest-native/kafka
 
-      - name: Run the sample matrix against NestJS 12
+      - name: Run the sample matrix against NestJS ${{ matrix.nest.label }}
         run: npm run ci:sample
 
   release-and-security:

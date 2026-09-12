@@ -13,9 +13,13 @@ the package's published peer ranges.
 | TypeScript | `^6` |
 | Validation | `class-validator` and Zod, both app-owned |
 
-Both ends of the NestJS range are tested, not assumed: the default lockfile
-keeps the suite on 11.x, and a dedicated CI leg installs `@nestjs/*@^12` on
-top of it and runs the unit suite and the sample matrix.
+Both ends of the NestJS range are tested, not assumed. The default lockfile
+keeps the suite on an 11.x in the middle of the range; the `nestjs-compat` CI
+matrix installs each end on top of it and runs the unit suite and the sample
+matrix. The oldest installable 11 graph we run is `11.0.0`, pinned exactly,
+because nothing this package uses was added by a later 11.x; the other leg
+floats on `^12.0.0`. See [Quality & CI](quality-and-ci.md) for how each leg
+proves it is testing the tree it claims to.
 
 The Node.js floor depends on which end of that range you are on. NestJS 11
 runs on any Node.js `>=22`. NestJS 12 is ESM-only; loading it from CommonJS
