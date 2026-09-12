@@ -319,17 +319,24 @@ assumed: one leg per end installs it on top of the lockfile (`npm install
 `@nestjs/*` exactly and a root-only install leaves them a nested 11) and runs
 the unit suite, the package build, and the sample matrix. The `11 floor` leg
 pins `11.0.0` exactly, with the reason written next to the pin in `ci.yml`; the
-`12` leg floats on `^12.0.0`. Three gates run before a leg tests anything,
-because npm makes it easy to run a suite against a tree you did not ask for:
-the install log is grepped for `ERESOLVE` (a peer conflict npm can override
-produces a warning and exit 0, and neither `npm ls` nor `--strict-peer-deps`
-reports it afterwards); `scripts/check-nestjs-resolution.mjs` proves from
-inside every workspace that the framework packages resolve to *exactly* the
-pinned version (a downgrade that silently no-ops leaves the lockfile's 11.x in
-place, and "still 11" passes a major check) and re-checks every peer range on
-`@nestjs/*` in the tree against the hoisted copy; and a nested copy fails even
-when its version is right. The same script runs with no argument in
-`release:check`, against the lockfile. A floor is an install-graph fact, not a
+`12` leg floats on `^12.0.0`. Before a leg tests anything,
+`scripts/check-nestjs-resolution.mjs <spec>` proves the tree is the one it
+claims, because npm makes it easy to run a suite against a tree you did not
+ask for: it requires the *exact* pinned version from inside every workspace (a
+downgrade that silently no-ops leaves the lockfile's 11.x in place, and "still
+11" passes a major check), fails on nested copies even when the version is
+right, and checks every peer range in the NestJS ecosystem — every installed
+package at any depth that is `@nestjs/*` or peers on one, this package's own
+published ranges included — against the tree the suite will run on. The same
+script runs with no argument in `release:check`, against the lockfile. That
+final-tree check is the gate because npm gives you nothing better: a peer
+conflict npm can override is `npm warn ERESOLVE overriding peer dependency`
+plus exit 0, which neither `npm ls` nor `--strict-peer-deps` reports
+afterwards — and grepping the install log for that warning was tried and
+dropped, because npm also prints it for transitional states that end coherent
+(replacing `@nestjs/*` under a package whose peers admit both majors, the
+`nestjs-cls` line in the sibling repos, prints dozens for a tree the check then
+proves clean). A floor is an install-graph fact, not a
 source fact: `11.0.0` is this package's floor because nothing it uses was added
 by a later 11.x, but sibling `@nestjs/*` packages carry their own peer lines
 (`@nestjs/platform-fastify` 11.0.0 and 11.0.1 shipped peering `^10`; every
