@@ -14,12 +14,14 @@ package release is useful for users.
   `nestjs-latest-major` job that installed `^12` is replaced by a
   `nestjs-compat` matrix: an `11 floor` leg pinned exactly to `11.0.0` (the
   oldest graph the published `^11.0.0 || ^12.0.0` range can produce, with the
-  reason next to the pin) and a `12` leg on `^12.0.0`. Each leg greps its
-  install log for `ERESOLVE` (npm overrides a peer conflict it can override
-  with a warning and exit 0) and runs `scripts/check-nestjs-resolution.mjs`,
-  which proves the exact version from inside every workspace and re-checks
-  every `@nestjs/*` peer range in the tree. The same script runs against the
-  lockfile in `release:check`. No published range changed.
+  reason next to the pin) and a `12` leg on `^12.0.0`. Each leg runs
+  `scripts/check-nestjs-resolution.mjs`, which proves the exact version from
+  inside every workspace and checks every peer range in the NestJS ecosystem
+  against the final tree (npm overrides a peer conflict it can override with
+  a warning and exit 0, and prints the same warning for transitional states
+  that end coherent, so the final tree is the gate, not the install log).
+  The same script runs against the lockfile in `release:check`. No published
+  range changed.
 
 ## 0.5.1
 

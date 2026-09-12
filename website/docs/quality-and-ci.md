@@ -54,18 +54,23 @@ package build, and the sample matrix.
 | `11 floor` | `11.0.0`, pinned exactly | The oldest graph the range can produce. Nothing this package uses was added by a later 11.x: every `@nestjs/core` internal it deep-imports exists with the same signature at 11.0.0. An exact pin means a downgrade that silently no-ops fails instead of passing as "still 11". |
 | `12` | `^12.0.0` | The newest end; floats so a new 12.x patch is tested on the next run. |
 
-Before a leg runs anything, three gates prove the tree is the one it claims to
-test, because npm makes it easy to end up with another one:
+Before a leg runs anything, `scripts/check-nestjs-resolution.mjs` proves the
+tree is the one it claims to test, because npm makes it easy to end up with
+another one:
 
-- the install log is grepped for `ERESOLVE`. A peer conflict npm can override
-  produces `npm warn ERESOLVE overriding peer dependency` and exit 0, and
-  neither `npm ls` nor `--strict-peer-deps` reports it afterwards;
-- `scripts/check-nestjs-resolution.mjs` resolves the framework packages from
-  inside every workspace and requires exactly the leg's version, from the
-  hoisted root copy — a nested copy fails even when its version is right;
-- the same script re-checks every peer range on `@nestjs/*` in the tree
-  (other `@nestjs/*` packages, and this package's own published range)
-  against the hoisted copy.
+- it resolves the framework packages from inside every workspace and requires
+  exactly the leg's version, from the hoisted root copy — a nested copy fails
+  even when its version is right;
+- it checks every peer range in the NestJS ecosystem — every installed package
+  at any depth that is `@nestjs/*` or peers on one, this package's own
+  published range included — against the tree the suite will run on.
+
+That final-tree check is the gate because npm's own signal is not one: a peer
+conflict npm can override produces `npm warn ERESOLVE overriding peer
+dependency` and exit 0, neither `npm ls` nor `--strict-peer-deps` reports it
+afterwards, and the same warning appears for transitional states that end
+coherent, so grepping the install log for it is a false-positive class rather
+than a gate.
 
 The script also runs with no argument as part of `release:check`, against the
 lockfile, so a lockfile that drifts from what the workspaces declare is a
