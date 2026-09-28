@@ -34,6 +34,7 @@ import { KafkaCtx, KafkaMessage } from '../kafka-params.decorators';
 import { KafkaContext } from '../kafka-context';
 import { readDeadLetterHeaders, toDeadLetterMessage } from '../kafka-dead-letter';
 import { KafkaModule } from '../kafka.module';
+import { KafkaHealthIndicator } from '../kafka-health.indicator';
 import { KafkaProducerService } from '../kafka-producer.service';
 import {
   KafkaReplyRemoteError,
@@ -65,7 +66,8 @@ import { KafkaRequestReplyService } from '../kafka-request-reply.service';
  * did not process, a retry backoff whose delay grows and that pauses only the
  * failing partition, a dead-letter record whose Spring headers survive the
  * round trip, a pattern subscription that picks up a matching topic created
- * while running, and recovery across a broker restart.
+ * while running, a health indicator that reports a stopped broker down and a
+ * restarted one up, and recovery across a broker restart.
  * The second covers request-reply (ADR 0001) — see its own header below. Every
  * topic and group name is unique per run, so repeated CI runs against the same
  * broker never collide.
@@ -1077,6 +1079,60 @@ describe('Kafka real-broker integration', { skip }, () => {
       await app.close();
     }
   });
+
+  it(
+    'reports the cluster down while the broker is stopped, and up once it is back',
+    { skip: skipRestart },
+    async () => {
+      @Module({
+        imports: [KafkaModule.forRoot({ clientId, client: { brokers }, driverFactory })],
+      })
+      class HealthModule {}
+
+      const app = await Test.createTestingModule({
+        imports: [HealthModule],
+      }).compile();
+      await app.init();
+      const health = app.get(KafkaHealthIndicator);
+
+      try {
+        assert.equal((await health.isHealthy()).kafka.status, 'up');
+
+        await withTimeout(
+          () => execFileAsync('docker', ['stop', restartContainer]),
+          120_000,
+          `stopping container ${restartContainer}`,
+        );
+        try {
+          const started = Date.now();
+          const down = await health.isHealthy('kafka', { timeoutMs: 5_000 });
+          // admin.connect() alone would still say the cluster is fine; only a
+          // metadata round trip can notice it is gone.
+          assert.equal(down.kafka.status, 'down', JSON.stringify(down));
+          assert.ok(Date.now() - started < 10_000, 'the check is bounded by its timeout');
+        } finally {
+          await withTimeout(
+            () => execFileAsync('docker', ['start', restartContainer]),
+            120_000,
+            `starting container ${restartContainer}`,
+          );
+          await waitForBrokerReady();
+        }
+
+        // After a failure the indicator checks with a fresh admin client — the
+        // failed one would keep reporting the outage.
+        const deadline = Date.now() + 60_000;
+        let last = await health.isHealthy();
+        while (last.kafka.status !== 'up' && Date.now() < deadline) {
+          await delay(1_000);
+          last = await health.isHealthy();
+        }
+        assert.equal(last.kafka.status, 'up', JSON.stringify(last));
+      } finally {
+        await app.close();
+      }
+    },
+  );
 
   it(
     'recovers the consumer and producer after the broker restarts',

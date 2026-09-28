@@ -329,6 +329,18 @@ export interface KafkaConsumerConfig {
 }
 
 /**
+ * The admin surface {@link KafkaHealthIndicator} uses: a metadata round trip to
+ * the cluster. `listTopics` is the probe because it has to reach a broker —
+ * unlike `connect`, which `librdkafka` performs lazily and which reports success
+ * against a broker that is down.
+ */
+export interface KafkaDriverAdmin {
+  connect(): Promise<void>;
+  disconnect(): Promise<void>;
+  listTopics(): Promise<string[]>;
+}
+
+/**
  * The driver the module wires into the producer service and the consumer
  * transport. A driver knows how to create producers and consumers.
  */
@@ -344,6 +356,13 @@ export interface KafkaClientDriver {
    * options.
    */
   createConsumer(config?: KafkaConsumerConfig): KafkaDriverConsumer;
+
+  /**
+   * Create an admin client bound to the configured broker connection, for
+   * {@link KafkaHealthIndicator}. Optional: without it the indicator cannot
+   * reach the cluster, and reports it down rather than guess.
+   */
+  createAdmin?(): KafkaDriverAdmin;
 }
 
 /**
@@ -402,6 +421,7 @@ export type KafkaDriverFactory = (
 interface ConfluentKafka {
   producer(config?: Record<string, unknown>): KafkaDriverProducer;
   consumer(config?: Record<string, unknown>): KafkaDriverConsumer;
+  admin(config?: Record<string, unknown>): KafkaDriverAdmin;
 }
 
 interface ConfluentKafkaConstructor {
@@ -525,6 +545,7 @@ export const createConfluentDriver: KafkaDriverFactory = (
     createProducer: () => kafka.producer(splitDriverConfig(producerConfig)),
     createConsumer: (consumerConfig = {}) =>
       kafka.consumer(splitDriverConfig(consumerConfig)),
+    createAdmin: () => kafka.admin(),
   };
 };
 

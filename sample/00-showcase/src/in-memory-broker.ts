@@ -1,6 +1,7 @@
 import type {
   KafkaClientDriver,
   KafkaConsumerConfig,
+  KafkaDriverAdmin,
   KafkaConsumerMessage,
   KafkaDriverConsumer,
   KafkaDriverProducer,
@@ -39,6 +40,23 @@ export class InMemoryBroker {
       createProducer: () => this.createProducer(),
       createConsumer: (config?: KafkaConsumerConfig) =>
         this.createConsumer(config),
+      createAdmin: () => this.createAdmin(),
+    };
+  }
+
+  /**
+   * The admin client `KafkaHealthIndicator` checks the cluster with. In memory
+   * the "metadata round trip" always succeeds and lists the subscribed topics;
+   * against a real broker it is `listTopics()`, which fails while the cluster
+   * is unreachable.
+   */
+  private createAdmin(): KafkaDriverAdmin {
+    return {
+      connect: async () => {},
+      disconnect: async () => {},
+      listTopics: async () => [
+        ...new Set(this.consumers.flatMap(consumer => [...consumer.topics])),
+      ],
     };
   }
 

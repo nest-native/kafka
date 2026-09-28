@@ -1,6 +1,7 @@
 import {
   KafkaClientDriver,
   KafkaConsumerConfig,
+  KafkaDriverAdmin,
   KafkaConsumerMessage,
   KafkaDriverConsumer,
   KafkaDriverProducer,
@@ -89,6 +90,7 @@ export class InMemoryKafkaBroker {
       createProducer: () => this.createProducer(),
       createConsumer: (config?: KafkaConsumerConfig) =>
         this.createConsumer(config),
+      createAdmin: () => this.createAdmin(),
     };
   }
 
@@ -184,6 +186,24 @@ export class InMemoryKafkaBroker {
       send: sendRecord,
       sendBatch,
       transaction: async () => this.createTransaction(sendRecord, sendBatch),
+    };
+  }
+
+  /**
+   * An admin client whose metadata round trip always succeeds, listing every
+   * topic produced to or subscribed by name — so `KafkaHealthIndicator` reports
+   * the in-memory cluster up.
+   */
+  private createAdmin(): KafkaDriverAdmin {
+    return {
+      connect: async () => {},
+      disconnect: async () => {},
+      listTopics: async () => [
+        ...new Set([
+          ...this.sent.map(record => record.topic),
+          ...this.consumers.flatMap(consumer => [...consumer.topics]),
+        ]),
+      ],
     };
   }
 

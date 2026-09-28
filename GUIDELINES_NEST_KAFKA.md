@@ -357,6 +357,21 @@ timers are cancelled when shutdown begins, because a resume after disconnect
 throws. Streaks are per consumer and in memory, so a rebalance or a restart
 starts a record over at the initial delay; the docs say so.
 
+**The health check is a metadata round trip, and a failed client is replaced.**
+`KafkaHealthIndicator` calls `listTopics` under a timeout, never `connect()`:
+`librdkafka` connects lazily, and `admin.connect()` resolves in about 4 ms
+against a stopped broker, so a connect-based probe reports a dead cluster
+healthy. An admin client that failed during an outage keeps reporting that
+failure after the cluster recovers, so the indicator discards it after any
+failed check and opens a fresh one next time, while reusing a healthy one to
+keep probes cheap. Overlapping checks share one round trip, so a readiness
+probe that fires faster than the cluster answers cannot pile up clients. It
+returns `@nestjs/terminus`'s result shape instead of importing terminus, which
+keeps `"dependencies": {}`; that a returned `down` fails terminus's check was
+verified against terminus 11.1.1, not assumed. The real-broker suite stops the
+broker under a running application and requires `down` within the timeout,
+then `up` after it returns.
+
 **A topic pattern must mean the same to librdkafka and to JavaScript.** A
 `RegExp` topic is matched twice: `librdkafka` compiles the subscription as a
 POSIX extended regular expression and re-matches it on every metadata refresh,

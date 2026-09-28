@@ -322,6 +322,15 @@ the messages (and batches) already in flight so no handler is interrupted
 mid-message, then disconnects every consumer. Enable Nest's shutdown hooks
 (`app.enableShutdownHooks()`) for it to run on `SIGTERM`/`SIGINT`.
 
+### Health checks
+
+`KafkaHealthIndicator` reports whether the cluster is reachable, in the result
+shape `@nestjs/terminus` expects, so `this.health.check([() =>
+this.kafka.isHealthy('kafka')])` works without this package depending on
+terminus. The check is a metadata round trip under a timeout (5 s) — never
+`connect()`, which succeeds against a broker that is down — and a client that
+failed is replaced before the next check.
+
 ### Testing without a broker
 
 Use `KafkaTestModule` in place of `KafkaModule` to run the whole transport —

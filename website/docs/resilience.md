@@ -70,6 +70,49 @@ Being honest about the edges matters more than the headline:
 - **Recovery is not instant.** Re-connect, metadata refresh, and group re-join
   take time, governed by the client's backoff settings.
 
+## Health Checks
+
+`KafkaHealthIndicator` answers whether the cluster is reachable — for a
+readiness probe, or for `@nestjs/terminus`, whose result shape it returns
+without the package depending on terminus:
+
+```ts
+import {Controller, Get} from '@nestjs/common';
+import {HealthCheck, HealthCheckService} from '@nestjs/terminus';
+import {KafkaHealthIndicator} from '@nest-native/kafka';
+
+@Controller('health')
+export class HealthController {
+  constructor(
+    private readonly health: HealthCheckService,
+    private readonly kafka: KafkaHealthIndicator,
+  ) {}
+
+  @Get()
+  @HealthCheck()
+  check() {
+    return this.health.check([() => this.kafka.isHealthy('kafka')]);
+  }
+}
+```
+
+`isHealthy(key?, {timeoutMs?})` resolves to `{kafka: {status: 'up', latencyMs,
+topics}}` or `{kafka: {status: 'down', message}}`; a returned `down` is what
+fails terminus 11's check with a 503 (verified against `@nestjs/terminus`
+11.1.1). The check is a **metadata round trip** (`listTopics`), bounded by
+`timeoutMs` (5 s by default) — never `admin.connect()`, which `librdkafka`
+performs lazily and which resolves in milliseconds against a stopped broker.
+One admin client is reused while checks succeed; after a failure it is
+discarded and the next check opens a fresh one, because a client that failed
+during an outage keeps reporting it after the cluster is back. Checks that
+overlap share one round trip. The real-broker suite stops the broker under a
+running application and requires the indicator to report `down` within the
+timeout, then `up` once the broker returns.
+
+It needs a driver that can open an admin client; the Confluent driver can, and
+`KafkaTestModule`'s in-memory broker answers in memory. With a custom driver
+that cannot, the indicator reports the cluster `down` rather than guess.
+
 ## Tuning
 
 `librdkafka` properties can be set alongside the KafkaJS-style options, in the
