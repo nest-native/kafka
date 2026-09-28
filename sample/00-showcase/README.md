@@ -34,6 +34,10 @@ What it shows:
   `/^showcase\.(orders|notifications|analytics)/` and follows every event
   topic — including ones created later — through one handler. It is anchored so
   it does not also swallow `showcase.replies`, the request-reply topic.
+- **Health:** the smoke test asks `KafkaHealthIndicator` whether the cluster is
+  reachable — the call a readiness probe or an `@nestjs/terminus` health check
+  makes. The loopback broker answers it in memory; against a real broker it is
+  a metadata round trip.
 
 Milestones still to land here: the testing utilities + migration scenario (7).
 

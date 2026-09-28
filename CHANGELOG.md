@@ -10,6 +10,18 @@ package release is useful for users.
 
 ### Added
 
+- **Health indicator.** `KafkaHealthIndicator.isHealthy(key?, {timeoutMs?})`
+  reports whether the cluster is reachable, as `{[key]: {status: 'up', …}}` or
+  `{[key]: {status: 'down', message}}` — `@nestjs/terminus`'s result shape, so it
+  plugs into `HealthCheckService.check()` (a `down` fails terminus 11's check
+  with a 503) without the package depending on terminus. The check is a
+  metadata round trip under a timeout (5 s), never `connect()`, which resolves
+  against a broker that is down. It reuses one admin client while checks
+  succeed and opens a fresh one after a failure; overlapping checks share one
+  round trip. `KafkaClientDriver` gains an optional `createAdmin`. A real-broker
+  case freezes the broker under a running application (`docker pause`) and
+  requires `down` within the timeout, then `up` once it answers again; the
+  showcase's smoke test calls it.
 - **Topic patterns.** `@KafkaConsumer` and `@KafkaHandler` accept a `RegExp`
   (`KafkaTopicPattern`) to consume every matching topic. The decorators already
   documented "topic (or pattern)" but took only strings. Confluent's client hands

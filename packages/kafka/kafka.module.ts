@@ -9,6 +9,7 @@ import {
 import { KafkaProducerService } from './kafka-producer.service';
 import { KafkaConsumerExplorer } from './kafka-consumer.explorer';
 import { KafkaRequestReplyService } from './kafka-request-reply.service';
+import { KafkaHealthIndicator } from './kafka-health.indicator';
 import { KafkaModuleAsyncOptions, KafkaModuleOptions } from './interfaces';
 import {
   KAFKA_CLIENT_DRIVER,
@@ -113,6 +114,8 @@ export class KafkaModule {
       // service starts no consumer and touches no topic, so an application that
       // did not opt in pays nothing for it being injectable.
       KafkaRequestReplyService,
+      // Lazy too: no admin client exists until the first check.
+      KafkaHealthIndicator,
     ];
   }
 
@@ -123,6 +126,7 @@ export class KafkaModule {
       KAFKA_PRODUCER,
       KafkaProducerService,
       KafkaRequestReplyService,
+      KafkaHealthIndicator,
     ];
   }
 

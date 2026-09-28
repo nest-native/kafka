@@ -239,8 +239,8 @@ packages, using `node:test` and `c8`:
   transactional commit, per-topic concurrency, batch redelivery after a
   `'retry'`, a mid-stream graceful shutdown that loses nothing, a retry
   backoff that pauses only the failing partition, a dead-letter round trip,
-  a pattern subscription that picks up a topic created while running, and a
-  **broker restart** against
+  a pattern subscription that picks up a topic created while running, a health
+  indicator that reports a frozen broker down, and a **broker restart** against
   a single-node KRaft Kafka, once on 3.x and once on 4.x (skipped locally unless `KAFKA_BROKERS` is set;
   the restart case additionally needs `KAFKA_RESTART_CONTAINER`)
 

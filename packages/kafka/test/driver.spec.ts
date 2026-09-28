@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import Module from 'node:module';
 import { afterEach, describe, it } from 'node:test';
 import {
+  KafkaDriverAdmin,
   createConfluentDriver,
   splitDriverConfig,
   KafkaDriverConsumer,
@@ -49,10 +50,17 @@ describe('createConfluentDriver', () => {
     const consumerConfigs: unknown[] = [];
     const fakeProducer = {} as KafkaDriverProducer;
     const fakeConsumer = {} as KafkaDriverConsumer;
+    const fakeAdmin = {} as KafkaDriverAdmin;
+    let admins = 0;
 
     class FakeKafka {
       constructor(config?: unknown) {
         constructorConfigs.push(config);
+      }
+
+      admin(): KafkaDriverAdmin {
+        admins += 1;
+        return fakeAdmin;
       }
 
       producer(config?: unknown): KafkaDriverProducer {
@@ -75,7 +83,10 @@ describe('createConfluentDriver', () => {
     const created = driver.createProducer();
     const consumerWithGroup = driver.createConsumer({ groupId: 'orders-svc' });
     const consumerDefault = driver.createConsumer();
+    const admin = driver.createAdmin?.();
 
+    assert.equal(admin, fakeAdmin, 'the health indicator gets the client admin');
+    assert.equal(admins, 1);
     assert.equal(created, fakeProducer);
     assert.equal(consumerWithGroup, fakeConsumer);
     assert.equal(consumerDefault, fakeConsumer);

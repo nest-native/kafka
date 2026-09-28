@@ -99,10 +99,23 @@ Opt-in, and inert until `requestReply` is configured. See
 | `KafkaClientDriver` | interface | The driver contract. |
 | `KafkaDriverProducer` | interface | The producer the driver exposes. |
 | `KafkaDriverConsumer` | interface | The consumer the driver exposes. An optional `pause` lets graceful shutdown stop deliveries before draining; a custom driver without it loses nothing, since late records are handed back. |
+| `KafkaDriverAdmin` | interface | The admin client the driver may expose (`createAdmin`) for the health indicator: `connect`, `disconnect`, `listTopics`. |
 | `KafkaTopicPartitions` | interface | A topic and, optionally, the partitions to pause. |
 | `KafkaDriverFactory` | type | `driverFactory` option shape. |
 
 The driver is an advanced seam. Most applications never touch it directly.
+
+## Health
+
+| Export | Kind | Notes |
+| --- | --- | --- |
+| `KafkaHealthIndicator` | injectable | `isHealthy(key?, options?)` — a metadata round trip; resolves `{[key]: {status: 'up' \| 'down', …}}`, terminus's result shape. |
+| `KafkaHealthCheckOptions` | interface | `timeoutMs` (default `5000`). |
+| `KafkaHealthIndicatorResult` | type | `Record<string, KafkaHealthStatus>`. |
+| `KafkaHealthStatus` | interface | `status` plus details (`latencyMs`, `topics`, or `message`). |
+| `DEFAULT_KAFKA_HEALTH_TIMEOUT_MS` | const | `5000`. |
+
+See [Resilience](resilience.md#health-checks).
 
 ## Testing
 

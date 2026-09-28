@@ -2,6 +2,7 @@ import 'reflect-metadata';
 import assert from 'node:assert/strict';
 import { Logger } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
+import { KafkaHealthIndicator } from '@nest-native/kafka';
 import { AppModule } from '../src/app.module';
 import { MessageLog } from '../src/common/message-log.service';
 import { OrdersService } from '../src/orders/orders.service';
@@ -117,6 +118,10 @@ async function smoke(): Promise<void> {
     'showcase.orders.placed',
   ]);
   assert.equal(log.activity.includes('showcase.replies'), false);
+
+  // Health: the indicator a readiness probe (or @nestjs/terminus) would call.
+  const health = await app.get(KafkaHealthIndicator).isHealthy('kafka');
+  assert.equal(health.kafka.status, 'up', JSON.stringify(health));
 
   await app.close();
 
