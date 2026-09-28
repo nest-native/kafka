@@ -29,6 +29,21 @@ package release is useful for users.
   line, which is KRaft-only and removed the old protocol API versions.
   `compose.yaml` takes a `KAFKA_IMAGE` override to run the 4.x end locally.
 
+### Fixed
+
+- **A batch that fails with `'retry'` is redelivered instead of committed.**
+  The dispatcher resolved every offset of a batch while decoding it, before the
+  handler ran. Confluent's client stores a resolved offset for commit at once
+  and, when `eachBatch` throws, redelivers only what follows the last resolved
+  offset — so a batch handler that failed with an error mapped to `'retry'` had
+  its batch committed and never handed back. A batch is now resolved in full
+  only after its handlers return (or fail with an error mapped to `'commit'`),
+  and a `'retry'` resolves nothing, so the broker redelivers the whole batch. A
+  real-broker case proves the redelivery and that the batch is committed once
+  it succeeds. The docs no longer claim a partition revoked mid-batch "keeps the
+  progress already made": a batch handler receives all its messages at once, so
+  a batch is at-least-once and runs again in full after a retry or a revoke.
+
 ## 0.5.1
 
 ### Changed

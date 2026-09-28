@@ -159,7 +159,7 @@ describe('Kafka batch consumption', () => {
     assert.deepEqual(seen[0].payloads, [{ n: 1 }, { n: 2 }, { n: 3 }]);
     assert.equal(seen[0].topic, 'metrics');
     assert.equal(seen[0].partition, 4);
-    // Every message offset resolved, so a rebalance keeps the progress made.
+    // Every message offset resolved once the handler returned.
     assert.deepEqual(resolved, ['0', '1', '2']);
 
     await app.close();
@@ -304,22 +304,70 @@ describe('Kafka batch consumption', () => {
     );
     const bad = driver.consumers.find(c => c.subscribedTopics.includes('bad'));
 
-    // A plain Error retries → rethrows so the offset stays uncommitted.
+    // A plain Error retries → rethrows with nothing resolved, so the client
+    // seeks back and the broker hands the whole batch back.
+    const retried: string[] = [];
     await assert.rejects(
       exploding?.eachBatch?.({
-        batch: batch('explode', 0, messages({ id: 1 })),
-        resolveOffset: () => {},
+        batch: batch('explode', 0, messages({ id: 1 }, { id: 2 })),
+        resolveOffset: offset => retried.push(offset),
       }) ?? Promise.resolve(),
       /batch downstream timeout/,
     );
+    assert.deepEqual(retried, [], 'a retried batch resolves no offset');
 
-    // A 4xx commits → resolves cleanly.
+    // A 4xx commits → resolves cleanly, and the batch counts as done.
+    const committed: string[] = [];
     await assert.doesNotReject(
       bad?.eachBatch?.({
-        batch: batch('bad', 0, messages({ id: 1 })),
-        resolveOffset: () => {},
+        batch: batch('bad', 0, messages({ id: 1 }, { id: 2 })),
+        resolveOffset: offset => committed.push(offset),
       }) ?? Promise.resolve(),
     );
+    assert.deepEqual(committed, ['0', '1'], 'a committed batch resolves every offset');
+
+    await app.close();
+  });
+
+  it('resolves a batch only after its handler has finished with it', async () => {
+    const driver = createControllableDriver();
+    let release: () => void = () => {};
+    const handlerMayFinish = new Promise<void>(resolve => {
+      release = resolve;
+    });
+    let handlerStarted = false;
+
+    @KafkaConsumer('slow-batch')
+    class SlowBatchConsumer {
+      @KafkaHandler('slow-batch', { batch: true })
+      async consume(): Promise<void> {
+        handlerStarted = true;
+        await handlerMayFinish;
+      }
+    }
+
+    const moduleRef = await Test.createTestingModule({
+      imports: [
+        KafkaModule.forRoot({ driverFactory: driver.factory }),
+        KafkaModule.forFeature([SlowBatchConsumer]),
+      ],
+    }).compile();
+    const app = await moduleRef.init();
+
+    const resolved: string[] = [];
+    const delivery = driver.consumers[0].eachBatch?.({
+      batch: batch('slow-batch', 0, messages({ id: 1 }, { id: 2 })),
+      resolveOffset: offset => resolved.push(offset),
+    });
+
+    await waitFor(() => handlerStarted);
+    // Resolving now would tell the client the batch is processed while the
+    // handler is still working on it — and a failure from here on would lose it.
+    assert.deepEqual(resolved, [], 'nothing is resolved while the handler runs');
+
+    release();
+    await delivery;
+    assert.deepEqual(resolved, ['0', '1']);
 
     await app.close();
   });

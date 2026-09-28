@@ -301,8 +301,10 @@ export interface KafkaHandlerOptions extends KafkaConcurrencyOptions {
    * Consume messages in batches instead of one at a time. A batch handler is
    * invoked once per fetched topic-partition batch and receives the array of
    * deserialized payloads (via `@KafkaMessage()`) or the raw
-   * {@link KafkaConsumerBatch} (via `@KafkaBatch()`). Offsets resolve per message
-   * so a rebalance mid-batch stays safe (`nestjs/nest#12355`).
+   * {@link KafkaConsumerBatch} (via `@KafkaBatch()`). The batch is the unit of
+   * work: its offsets are resolved only after the handler returns (or fails
+   * with an error mapped to `'commit'`), and a `'retry'` hands the whole batch
+   * back — make batch handlers idempotent.
    *
    * A batch handler runs on its own consumer: per-message and batch handlers are
    * never mixed on a single Kafka consumer instance.

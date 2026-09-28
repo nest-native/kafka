@@ -236,7 +236,8 @@ packages, using `node:test` and `c8`:
   peer range from inside every workspace, and runs the unit suite and the
   sample matrix against it, so both ends of the range are tested claims
 - a real-broker integration job that runs a produce → consume round-trip, a
-  transactional commit, per-topic concurrency, and a **broker restart** against
+  transactional commit, per-topic concurrency, batch redelivery after a
+  `'retry'`, and a **broker restart** against
   a single-node KRaft Kafka, once on 3.x and once on 4.x (skipped locally unless `KAFKA_BROKERS` is set;
   the restart case additionally needs `KAFKA_RESTART_CONTAINER`)
 
@@ -274,7 +275,8 @@ The initial `0.x` release covers:
    `@KafkaHeaders`, `@KafkaCtx`, `@KafkaBatch`; commit-or-retry error mapping
    (`#9679`); in-flight draining on shutdown.
 5. **Batch consume + per-topic concurrency** — addresses sequential per-topic
-   processing (`#12703`) and rebalance-safe offsets (`#12355`), plus backpressure.
+   processing (`#12703`); a batch commits only after it is handled, and a
+   `'retry'` hands the whole batch back; plus backpressure.
 6. **Transactional producer helper** — `transactional(work)` with `sendOffsets`
    for the consume-process-produce pattern.
 7. **Testing utilities** — `KafkaTestModule`, `InMemoryKafkaBroker`,

@@ -18,7 +18,7 @@ Use the shortest path for the decision in front of you.
 ## Correctness
 
 - [Error Mapping](error-mapping.md): exceptions to consumer behavior (`nestjs/nest#9679`)
-- [Batch & Concurrency](batch-and-concurrency.md): per-topic concurrency (`#12703`) and rebalance-safe offsets (`#12355`)
+- [Batch & Concurrency](batch-and-concurrency.md): per-topic concurrency (`#12703`), batch offsets and redelivery, and backpressure
 - [Transactions](transactions.md): the transactional producer helper and `sendOffsets`
 - [Graceful Shutdown](graceful-shutdown.md): stop, drain, disconnect
 

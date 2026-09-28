@@ -288,10 +288,12 @@ export class MetricsConsumer {
   per-partition ordering); raising it processes partitions concurrently while
   preserving order within each partition. Resolution is handler → consumer →
   `KafkaModule.forRoot({ concurrency })` → `1`.
-- **Rebalance safety (`nestjs/nest#12355`).** Batch consumers resolve each
-  message's offset as the batch is processed (the client's all-or-nothing
-  auto-resolve is disabled), so a partition revoked mid-batch keeps the progress
-  already made instead of replaying the whole batch or hanging.
+- **Batch offsets.** A batch is the unit of work: its offsets are resolved only
+  after the handler returns (or fails with an error mapped to `'commit'`), and a
+  `'retry'` hands the whole batch back. A redelivered batch runs again in full,
+  so make batch handlers idempotent. (`nestjs/nest#12355`, a rebalance loop in
+  the official transport's custom reply-partition assigner, cannot occur: this
+  package uses the client's standard assignors.)
 - **Backpressure.** `maxInFlight` caps how many messages/batches a consumer
   processes at once, so a fast broker cannot overwhelm slow handlers. The default
   is uncapped (`0`); it resolves handler → consumer → module the same way as

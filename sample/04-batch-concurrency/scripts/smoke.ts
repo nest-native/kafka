@@ -51,9 +51,8 @@ async function smoke(): Promise<void> {
   assert.equal(partition1.count, 1);
   assert.equal(partition1.sum, 30);
 
-  // 3. Rebalance safety (`nestjs/nest#12355`): every message offset is resolved
-  // as the batch is processed, so a partition revoked mid-batch keeps its
-  // progress instead of replaying the whole batch.
+  // 3. Every message offset of a handled batch is resolved — only after the
+  // handler returned, so a batch that fails with 'retry' is handed back.
   assert.deepEqual(broker.resolvedOffsets.get('metrics.ingested-0'), [
     '0',
     '1',

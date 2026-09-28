@@ -34,8 +34,8 @@ For a transport-only application created with `createMicroservice`, the same
 
 Combined with the rule that offsets commit only after a successful handler return,
 graceful shutdown means a redeploy or scale-down never acknowledges a message it
-did not finish. A partition revoked during the drain keeps the progress already
-made — see the rebalance-safe behavior in
+did not finish. Work that is not finished is not committed, so the partition's
+next owner receives it again — see how batches are resolved in
 [Batch & Concurrency](batch-and-concurrency.md).
 
 ## Testing It
