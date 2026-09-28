@@ -104,7 +104,8 @@ process, a retry backoff whose delay grows while a sibling partition keeps
 flowing on the same worker, a dead letter whose binary `kafka_dlt-*`
 headers decode after the round trip, a pattern subscription that picks
 up a matching topic created while the application runs, and a health
-indicator that reports a stopped broker down and a restarted one up — the in-memory broker has no commit log, never
+indicator that reports a frozen broker down within its timeout and up once it
+answers again — the in-memory broker has no commit log, never
 redelivers and never pauses, so only a real broker can show any of it. Every topic and group name is unique per run.
 
 The suite is **gated on `KAFKA_BROKERS`**: it is skipped when the variable is

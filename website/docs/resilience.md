@@ -105,9 +105,9 @@ performs lazily and which resolves in milliseconds against a stopped broker.
 One admin client is reused while checks succeed; after a failure it is
 discarded and the next check opens a fresh one, because a client that failed
 during an outage keeps reporting it after the cluster is back. Checks that
-overlap share one round trip. The real-broker suite stops the broker under a
+overlap share one round trip. The real-broker suite freezes the broker under a
 running application and requires the indicator to report `down` within the
-timeout, then `up` once the broker returns.
+timeout, then `up` once the broker answers again.
 
 It needs a driver that can open an admin client; the Confluent driver can, and
 `KafkaTestModule`'s in-memory broker answers in memory. With a custom driver

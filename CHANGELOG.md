@@ -19,8 +19,9 @@ package release is useful for users.
   against a broker that is down. It reuses one admin client while checks
   succeed and opens a fresh one after a failure; overlapping checks share one
   round trip. `KafkaClientDriver` gains an optional `createAdmin`. A real-broker
-  case stops the broker under a running application and requires `down` within
-  the timeout, then `up` once it returns; the showcase's smoke test calls it.
+  case freezes the broker under a running application (`docker pause`) and
+  requires `down` within the timeout, then `up` once it answers again; the
+  showcase's smoke test calls it.
 - **Topic patterns.** `@KafkaConsumer` and `@KafkaHandler` accept a `RegExp`
   (`KafkaTopicPattern`) to consume every matching topic. The decorators already
   documented "topic (or pattern)" but took only strings. Confluent's client hands

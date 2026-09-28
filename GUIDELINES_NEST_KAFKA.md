@@ -368,9 +368,13 @@ keep probes cheap. Overlapping checks share one round trip, so a readiness
 probe that fires faster than the cluster answers cannot pile up clients. It
 returns `@nestjs/terminus`'s result shape instead of importing terminus, which
 keeps `"dependencies": {}`; that a returned `down` fails terminus's check was
-verified against terminus 11.1.1, not assumed. The real-broker suite stops the
-broker under a running application and requires `down` within the timeout,
-then `up` after it returns.
+verified against terminus 11.1.1, not assumed. The real-broker suite freezes the
+broker (`docker pause`) under a running application and requires `down` within
+the timeout, then `up` once it answers again. Freezing, not stopping: a case
+that stopped and restarted the broker left a recovery window in which the next
+case's freshly created topic could not be assigned ("Unknown topic or
+partition", then nothing until the five-minute metadata refresh) — a hung
+cluster is also the failure a timeout-bounded probe exists for.
 
 **A topic pattern must mean the same to librdkafka and to JavaScript.** A
 `RegExp` topic is matched twice: `librdkafka` compiles the subscription as a
