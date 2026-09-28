@@ -19,6 +19,7 @@ field-by-field guide is kept in the repository at
 | `ClientsModule.register([{ transport: Transport.KAFKA, ... }])` | `KafkaModule.forRoot({ ... })` / `forRootAsync` |
 | `@Controller()` on the consumer class | `@KafkaConsumer('topic'?, options?)` |
 | `@EventPattern('topic')` | `@KafkaHandler('topic'?, options?)` |
+| `@EventPattern(/^orders\..+/)` | `@KafkaHandler(/^orders\..+/)` — anchored, no flags, POSIX syntax; see [Topic Patterns](consumers.md#topic-patterns) |
 | `@MessagePattern('topic')` | `@KafkaHandler('topic'?, {reply: true})` |
 | `client.send('topic', value)` | `KafkaRequestReplyService.request()` |
 | `client.subscribeToResponseOf('topic')` | nothing — delete it |

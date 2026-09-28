@@ -101,8 +101,9 @@ already-committed messages), redelivery of a batch whose handler failed
 with `'retry'`, a graceful shutdown in the middle of a stream after which
 the next member of the group receives every record the first one did not
 process, a retry backoff whose delay grows while a sibling partition keeps
-flowing on the same worker, and a dead letter whose binary `kafka_dlt-*`
-headers decode after the round trip — the in-memory broker has no commit log, never
+flowing on the same worker, a dead letter whose binary `kafka_dlt-*`
+headers decode after the round trip, and a pattern subscription that picks
+up a matching topic created while the application runs — the in-memory broker has no commit log, never
 redelivers and never pauses, so only a real broker can show any of it. Every topic and group name is unique per run.
 
 The suite is **gated on `KAFKA_BROKERS`**: it is skipped when the variable is

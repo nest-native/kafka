@@ -30,6 +30,10 @@ What it shows:
   module configures the producer with a `transactionalId`. The dedicated
   `05-transactions` sample isolates the helper, including the consume-process-
   produce `sendOffsets` pattern.
+- **Topic patterns:** the `activity` module's consumer subscribes to
+  `/^showcase\.(orders|notifications|analytics)/` and follows every event
+  topic — including ones created later — through one handler. It is anchored so
+  it does not also swallow `showcase.replies`, the request-reply topic.
 
 Milestones still to land here: the testing utilities + migration scenario (7).
 

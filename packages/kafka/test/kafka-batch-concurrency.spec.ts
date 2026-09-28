@@ -28,7 +28,7 @@ interface RecordedConsumer {
   runConfig?: KafkaConsumerRunConfig;
   eachMessage?: KafkaEachMessageHandler;
   eachBatch?: KafkaEachBatchHandler;
-  subscribedTopics: string[];
+  subscribedTopics: (string | RegExp)[];
   disconnected: number;
 }
 

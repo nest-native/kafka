@@ -207,6 +207,12 @@ Confluent consumer so partitions balance across instances. The payload is
 JSON-parsed by default, falling back to the decoded string for non-JSON values;
 header conventions stay neutral.
 
+A topic may also be a `RegExp` — `@KafkaConsumer(/^orders\.[a-z]+$/)` — to consume
+every matching topic, including ones created while the application runs. It must
+start with `^`, carry no flags, and stay within POSIX extended syntax (`[0-9]`,
+not `\d`): `librdkafka` matches the subscription that way. Bootstrap refuses
+anything else, and `reply: true` on a pattern.
+
 ### Parameter decorators
 
 Instead of the positional `(payload, context)` arguments you can decorate

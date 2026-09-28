@@ -14,6 +14,9 @@ export class MessageLog {
   /** Stock checks answered by the replying handler, and their outcome. */
   readonly stockChecks: string[] = [];
 
+  /** The topic of every event the pattern-subscribed activity feed saw. */
+  readonly activity: string[] = [];
+
   /** One entry per aggregated batch: the partition and how many events it held. */
   readonly batches: { partition: number; count: number }[] = [];
 
@@ -28,6 +31,10 @@ export class MessageLog {
     this.auditedBy.push(id);
   }
 
+  recordActivity(topic: string): void {
+    this.activity.push(topic);
+  }
+
   recordBatch(partition: number, count: number): void {
     this.batches.push({ partition, count });
   }
@@ -39,5 +46,6 @@ export class MessageLog {
     this.auditedBy.length = 0;
     this.stockChecks.length = 0;
     this.batches.length = 0;
+    this.activity.length = 0;
   }
 }

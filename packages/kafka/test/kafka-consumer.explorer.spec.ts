@@ -1113,3 +1113,155 @@ describe('Kafka async error mapper', () => {
     await app.close();
   });
 });
+
+describe('Kafka topic patterns', () => {
+  async function start(driver: ControllableDriver, consumers: Type[]) {
+    const moduleRef = await Test.createTestingModule({
+      imports: [
+        KafkaModule.forRoot({ driverFactory: driver.factory }),
+        KafkaModule.forFeature(consumers),
+      ],
+    }).compile();
+    return moduleRef.init();
+  }
+
+  it('subscribes by pattern and routes every topic it matches', async () => {
+    const driver = createControllableDriver();
+    const seen: string[] = [];
+
+    @KafkaConsumer(/^orders\./, { groupId: 'order-events' })
+    class OrderEvents {
+      @KafkaHandler()
+      handle(_payload: unknown, context: KafkaContext): void {
+        seen.push(context.getTopic());
+      }
+    }
+
+    const app = await start(driver, [OrderEvents]);
+    const [record] = driver.consumers;
+    assert.deepEqual(record.subscriptions, [{ topics: [/^orders\./] }]);
+
+    for (const topic of ['orders.placed', 'orders.cancelled', 'payments.captured']) {
+      await driver.emit(messagePayload(topic, { id: 1 }));
+    }
+    assert.deepEqual(seen, ['orders.placed', 'orders.cancelled']);
+
+    await app.close();
+  });
+
+  it('runs the exact handlers, then the pattern handlers, for a topic both match', async () => {
+    const driver = createControllableDriver();
+    const calls: string[] = [];
+
+    @KafkaConsumer(undefined, { groupId: 'orders' })
+    class Orders {
+      @KafkaHandler(/^orders\./)
+      audit(): void {
+        calls.push('audit');
+      }
+
+      @KafkaHandler('orders.placed')
+      place(): void {
+        calls.push('place');
+      }
+
+      @KafkaHandler(/^orders\./)
+      metrics(): void {
+        calls.push('metrics');
+      }
+    }
+
+    const app = await start(driver, [Orders]);
+    // One subscription per exact topic, one per distinct pattern.
+    assert.deepEqual(driver.consumers[0].subscriptions, [
+      { topics: ['orders.placed', /^orders\./] },
+    ]);
+
+    await driver.emit(messagePayload('orders.placed', { id: 1 }));
+    assert.deepEqual(calls, ['place', 'audit', 'metrics']);
+
+    calls.length = 0;
+    await driver.emit(messagePayload('orders.cancelled', { id: 1 }));
+    assert.deepEqual(calls, ['audit', 'metrics']);
+
+    await app.close();
+  });
+
+  it('routes batches by pattern too', async () => {
+    const driver = createControllableDriver();
+    const sizes: number[] = [];
+
+    @KafkaConsumer(/^metrics\./)
+    class MetricsBatches {
+      @KafkaHandler(undefined, { batch: true })
+      aggregate(payloads: unknown[]): void {
+        sizes.push(payloads.length);
+      }
+    }
+
+    const app = await start(driver, [MetricsBatches]);
+    await driver.consumers[0].eachBatch?.({
+      batch: {
+        topic: 'metrics.cpu',
+        partition: 0,
+        messages: [{ value: '1', offset: '0' }, { value: '2', offset: '1' }],
+      },
+      resolveOffset: () => {},
+    });
+    assert.deepEqual(sizes, [2]);
+
+    await app.close();
+  });
+
+  it('pauses the topics a pattern delivered, as well as the named ones, on shutdown', async () => {
+    const driver = createControllableDriver({ pausable: true });
+
+    @KafkaConsumer(undefined, { groupId: 'mixed' })
+    class Mixed {
+      @KafkaHandler('named')
+      named(): void {}
+
+      @KafkaHandler(/^orders\./)
+      orders(): void {}
+    }
+
+    const app = await start(driver, [Mixed]);
+    await driver.emit(messagePayload('orders.placed', { id: 1 }));
+    await driver.emit(messagePayload('orders.placed', { id: 2 }));
+    await app.close();
+
+    assert.deepEqual(driver.consumers[0].pauses, ['pause named[*],orders.placed[*]']);
+  });
+
+  for (const [label, pattern, message] of [
+    ['an unanchored pattern', /orders\./, /must start with "\^" and carry no flags/],
+    ['a pattern with flags', /^orders\./i, /must start with "\^" and carry no flags/],
+    ['a backslash class', /^orders\.\d+/, /syntax only JavaScript understands/],
+    ['a non-capturing group', /^(?:orders)/, /syntax only JavaScript understands/],
+  ] as const) {
+    it(`refuses ${label} at bootstrap`, async () => {
+      @KafkaConsumer(pattern)
+      class Invalid {
+        @KafkaHandler()
+        handle(): void {}
+      }
+
+      await assert.rejects(start(createControllableDriver(), [Invalid]), message);
+    });
+  }
+
+  it('refuses a replying handler on a pattern', async () => {
+    @KafkaConsumer(/^requests\./)
+    class Replier {
+      @KafkaHandler(undefined, { reply: true })
+      answer(): string {
+        return 'ok';
+      }
+    }
+
+    await assert.rejects(
+      start(createControllableDriver(), [Replier]),
+      /"reply: true" on the pattern \/\^requests\\\.\/.*must name its request topic/s,
+    );
+  });
+});

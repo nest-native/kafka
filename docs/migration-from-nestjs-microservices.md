@@ -18,6 +18,7 @@ smoke test proves the ported consumer works using `KafkaTestModule`.
 | `ClientsModule.register([{ transport: Transport.KAFKA, ... }])` | `KafkaModule.forRoot({ ... })` / `forRootAsync` |
 | `@Controller()` on the consumer class | `@KafkaConsumer('topic'?, options?)` |
 | `@MessagePattern('topic')` / `@EventPattern('topic')` | `@KafkaHandler('topic'?, options?)` |
+| `@EventPattern(/^orders\..+/)` | `@KafkaHandler(/^orders\..+/)` — anchored, no flags, POSIX syntax, not for `reply: true` |
 | `@Payload()` | `@KafkaMessage()` |
 | `@Ctx() ctx: KafkaContext` | `@KafkaCtx() ctx: KafkaContext` |
 | (read headers off the raw message) | `@KafkaHeaders()` |

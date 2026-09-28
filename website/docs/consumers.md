@@ -31,6 +31,45 @@ The parsed payload is the first positional argument and the raw `KafkaContext` i
 the second. For named parameters instead, see
 [Parameter Decorators](parameter-decorators.md).
 
+## Topic Patterns
+
+A topic may be a `RegExp` — on the consumer or on a single handler — to consume
+every topic it matches:
+
+```ts
+@KafkaConsumer(/^orders\.(placed|cancelled|refunded)$/, {groupId: 'order-audit'})
+export class OrderAuditConsumer {
+  @KafkaHandler()
+  audit(order: OrderEvent, context: KafkaContext): void {
+    // context.getTopic() says which one
+  }
+}
+```
+
+Confluent's client hands the pattern to `librdkafka`, which re-matches it on
+every metadata refresh, so a matching topic created after the application
+started is subscribed without a restart. The refresh runs every five minutes by
+default (`topic.metadata.refresh.interval.ms`, settable on `client`).
+
+The pattern is matched twice — by `librdkafka` for the subscription, and by this
+package to route each record — so it must mean the same to both. That is why
+bootstrap refuses:
+
+- a pattern that does not start with `^`, or that carries flags — the only form
+  the client accepts;
+- JavaScript-only syntax, such as `\d`, `\w`, `(?:…)`, or lookarounds:
+  `librdkafka` compiles the subscription as a POSIX extended regular
+  expression, where `\d` is a literal `d`. Use `[0-9]`, `[A-Za-z0-9_]`, and
+  plain groups;
+- `reply: true` on a pattern — a replying handler names its request topic, or
+  two repliers could match the same one.
+
+A pattern matches every topic it matches, dead-letter and reply topics
+included; anchor it tightly (`/^orders\.[a-z]+$/`, not `/^orders/`). A record
+whose topic both a named handler and a pattern handler route runs both, the
+named one first. Graceful shutdown pauses the named topics and every topic a
+pattern has delivered so far.
+
 ## Registering Consumers
 
 Register the consumer (and any guard / interceptor / pipe / filter classes it

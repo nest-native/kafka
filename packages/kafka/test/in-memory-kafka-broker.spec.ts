@@ -59,6 +59,27 @@ describe('InMemoryKafkaBroker', () => {
     );
   });
 
+  it('delivers every topic a pattern subscription matches, until disconnect', async () => {
+    const driver = broker.createDriver();
+    const received: string[] = [];
+
+    const consumer = driver.createConsumer({ groupId: 'g' });
+    await consumer.subscribe({ topics: ['audit', /^orders\./] });
+    await consumer.run({
+      eachMessage: async payload => void received.push(payload.topic),
+    });
+
+    // Matched on every delivery, so a topic first produced to now still counts.
+    for (const topic of ['orders.placed', 'audit', 'orders.cancelled', 'payments']) {
+      await broker.emit(topic, { value: 'x' });
+    }
+    assert.deepEqual(received, ['orders.placed', 'audit', 'orders.cancelled']);
+
+    await consumer.disconnect();
+    await broker.emit('orders.placed', { value: 'x' });
+    assert.equal(received.length, 3, 'a disconnected consumer matches nothing');
+  });
+
   it('does not deliver to a consumer subscribed to another topic', async () => {
     const driver = broker.createDriver();
     let calls = 0;

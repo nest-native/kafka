@@ -37,6 +37,17 @@ export interface DispatchHandler {
 }
 
 /**
+ * Where one consumer's records go: handlers by exact topic, then handlers by
+ * topic pattern. A record runs every handler whose route matches its topic.
+ *
+ * @internal
+ */
+export interface KafkaRoutes {
+  topics: Map<string, DispatchHandler[]>;
+  patterns: { pattern: RegExp; handlers: DispatchHandler[] }[];
+}
+
+/**
  * Routes consumed messages and batches to their handlers through the Nest
  * enhancer pipeline, applying backpressure and tracking in-flight work so
  * graceful shutdown can drain it.
@@ -64,8 +75,11 @@ export class KafkaDispatcher {
    */
   private shuttingDown = false;
 
+  /** Concrete topics a pattern route has delivered — see {@link patternTopics}. */
+  private readonly matchedByPattern = new Set<string>();
+
   constructor(
-    private readonly routes: Map<string, DispatchHandler[]>,
+    private readonly routes: KafkaRoutes,
     private readonly errorMapper: KafkaErrorMapper,
     maxInFlight: number,
     private readonly replier: KafkaReplyPublisher,
@@ -90,7 +104,7 @@ export class KafkaDispatcher {
     if (this.shuttingDown) {
       return Promise.reject(shuttingDownError(payload.topic, payload.partition));
     }
-    const matched = this.routes.get(payload.topic);
+    const matched = this.handlersFor(payload.topic);
     if (!matched) {
       return Promise.resolve();
     }
@@ -125,7 +139,7 @@ export class KafkaDispatcher {
     if (this.shuttingDown) {
       return Promise.resolve();
     }
-    const matched = this.routes.get(payload.batch.topic);
+    const matched = this.handlersFor(payload.batch.topic);
     if (!matched) {
       resolveBatch(payload);
       return Promise.resolve();
@@ -140,6 +154,16 @@ export class KafkaDispatcher {
   }
 
   /**
+   * The concrete topics a pattern route has delivered so far. Graceful shutdown
+   * pauses them next to the named topics: a pattern's topics are known only
+   * once the broker hands them over, and one never delivered has no record to
+   * hand back anyway.
+   */
+  patternTopics(): string[] {
+    return [...this.matchedByPattern];
+  }
+
+  /**
    * Stop accepting records, then wait for every in-flight message/batch to
    * settle. A record delivered from here on is handed back to the client
    * rather than acknowledged (see {@link eachMessage}).
@@ -149,6 +173,25 @@ export class KafkaDispatcher {
     // A pending resume would fire after the consumer disconnects.
     this.backoff?.cancelAll();
     await Promise.allSettled([...this.inFlight]);
+  }
+
+  /**
+   * The handlers a record on `topic` runs: the exact route's, then every
+   * matching pattern route's. `undefined` when nothing routes the topic.
+   */
+  private handlersFor(topic: string): DispatchHandler[] | undefined {
+    const exact = this.routes.topics.get(topic);
+    if (this.routes.patterns.length === 0) {
+      return exact;
+    }
+    const matched = [...(exact ?? [])];
+    for (const route of this.routes.patterns) {
+      if (route.pattern.test(topic)) {
+        matched.push(...route.handlers);
+        this.matchedByPattern.add(topic);
+      }
+    }
+    return matched.length > 0 ? matched : undefined;
   }
 
   /**

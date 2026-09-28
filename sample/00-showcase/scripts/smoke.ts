@@ -108,6 +108,16 @@ async function smoke(): Promise<void> {
     [0, 1],
   );
 
+  // Pattern subscription: the activity feed follows every showcase event topic
+  // through one `/^showcase\.(orders|notifications|analytics)/` consumer, and
+  // not the request-reply topic its anchoring leaves out.
+  assert.deepEqual([...new Set(log.activity)].sort(), [
+    'showcase.analytics.order-revenue',
+    'showcase.notifications',
+    'showcase.orders.placed',
+  ]);
+  assert.equal(log.activity.includes('showcase.replies'), false);
+
   await app.close();
 
   console.log('Showcase smoke test passed.');

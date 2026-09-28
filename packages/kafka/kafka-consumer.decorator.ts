@@ -1,6 +1,10 @@
 import { Injectable, SetMetadata } from '@nestjs/common';
 import { KAFKA_CONSUMER_METADATA } from './constants';
-import { KafkaConsumerMetadata, KafkaConsumerOptions } from './interfaces';
+import {
+  KafkaConsumerMetadata,
+  KafkaConsumerOptions,
+  KafkaTopicPattern,
+} from './interfaces';
 
 /**
  * Mark a class as a Kafka consumer.
@@ -13,6 +17,9 @@ import { KafkaConsumerMetadata, KafkaConsumerOptions } from './interfaces';
  * The optional `topic` acts as a default for handler methods that do not name
  * their own topic — useful when one class groups several handlers for the same
  * topic. Leaving it unset requires every {@link KafkaHandler} to name its topic.
+ * It may be a `RegExp` (starting with `^`, no flags) to consume every matching
+ * topic, including ones created after the application started — see
+ * {@link KafkaTopicPattern}.
  *
  * @example
  * ```ts
@@ -29,7 +36,7 @@ import { KafkaConsumerMetadata, KafkaConsumerOptions } from './interfaces';
  * @publicApi
  */
 export function KafkaConsumer(
-  topic?: string,
+  topic?: KafkaTopicPattern,
   options: KafkaConsumerOptions = {},
 ): ClassDecorator {
   const metadata: KafkaConsumerMetadata = { topic, options };

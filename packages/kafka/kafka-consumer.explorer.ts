@@ -32,11 +32,12 @@ import {
   KafkaHandlerInvocation,
 } from './kafka-context-creator';
 import { createKafkaEnhancerRuntime } from './kafka-enhancer-runtime.factory';
-import { KafkaDispatcher } from './kafka-dispatcher';
+import { KafkaDispatcher, KafkaRoutes } from './kafka-dispatcher';
 import {
   KafkaConsumerMetadata,
   KafkaHandlerMetadata,
   KafkaModuleOptions,
+  KafkaTopicPattern,
 } from './interfaces';
 import {
   defaultKafkaErrorMapper,
@@ -68,7 +69,7 @@ interface InstanceWrapperLike {
 }
 
 interface DiscoveredHandler {
-  topic: string;
+  topic: KafkaTopicPattern;
   groupId?: string;
   batch: boolean;
   reply: boolean;
@@ -90,6 +91,7 @@ type ConsumerKey = string;
 interface RunningConsumer {
   consumer: KafkaDriverConsumer;
   dispatcher: KafkaDispatcher;
+  /** The exact topics it subscribed to; its pattern topics come from the dispatcher. */
   topics: string[];
 }
 
@@ -172,8 +174,8 @@ export class KafkaConsumerExplorer
    * is never committed, so the next member of the group receives it.
    */
   async onApplicationShutdown(): Promise<void> {
-    for (const { consumer, topics } of this.running) {
-      this.pauseForShutdown(consumer, topics);
+    for (const { consumer, dispatcher, topics } of this.running) {
+      this.pauseForShutdown(consumer, [...topics, ...dispatcher.patternTopics()]);
     }
     await Promise.all(this.running.map(({ dispatcher }) => dispatcher.drain()));
     await Promise.all(this.running.map(({ consumer }) => consumer.disconnect()));
@@ -274,6 +276,9 @@ export class KafkaConsumerExplorer
     const reply = handlerMeta.options.reply ?? false;
     if (batch && reply) {
       throw this.batchReplyError(describe);
+    }
+    if (topic instanceof RegExp) {
+      this.assertUsablePattern(topic, reply, describe);
     }
 
     params.handlers.push({
@@ -408,7 +413,7 @@ export class KafkaConsumerExplorer
   }
 
   private async startConsumer(handlers: DiscoveredHandler[]): Promise<void> {
-    const routes = this.buildRoutes(handlers);
+    const routes = buildRoutes(handlers);
     const [first] = handlers;
     const config: KafkaConsumerConfig = {};
     if (first.groupId !== undefined) {
@@ -424,11 +429,13 @@ export class KafkaConsumerExplorer
       this.replier,
       this.createBackoff(consumer),
     );
-    const topics = [...routes.keys()];
+    const topics = [...routes.topics.keys()];
     this.running.push({ consumer, dispatcher, topics });
 
     await consumer.connect();
-    await consumer.subscribe({ topics });
+    await consumer.subscribe({
+      topics: [...topics, ...routes.patterns.map(({ pattern }) => pattern)],
+    });
     await consumer.run(this.runConfig(first, dispatcher, handlers));
   }
 
@@ -480,21 +487,6 @@ export class KafkaConsumerExplorer
     };
   }
 
-  private buildRoutes(
-    handlers: DiscoveredHandler[],
-  ): Map<string, DiscoveredHandler[]> {
-    const routes = new Map<string, DiscoveredHandler[]>();
-    for (const handler of handlers) {
-      const existing = routes.get(handler.topic);
-      if (existing) {
-        existing.push(handler);
-      } else {
-        routes.set(handler.topic, [handler]);
-      }
-    }
-    return routes;
-  }
-
   /**
    * Two replying handlers on one topic means two replies per request; the second
    * one always loses the correlation race and is dropped. Refusing to start
@@ -503,7 +495,9 @@ export class KafkaConsumerExplorer
   private assertOneReplierPerTopic(handlers: DiscoveredHandler[]): void {
     const repliers = new Map<string, string>();
     for (const handler of handlers) {
-      if (!handler.reply) {
+      // A replier always names its topic: patterns are refused for it at
+      // discovery, so every topic here is a string.
+      if (!handler.reply || typeof handler.topic !== 'string') {
         continue;
       }
       const existing = repliers.get(handler.topic);
@@ -511,6 +505,45 @@ export class KafkaConsumerExplorer
         throw this.duplicateReplierError(handler.topic, existing, handler.describe);
       }
       repliers.set(handler.topic, handler.describe);
+    }
+  }
+
+  /**
+   * Confluent's client accepts a pattern only in the form `librdkafka`
+   * understands — anchored with `^`, no flags — and a replier must name its
+   * topic: with patterns, two repliers could match one request topic and answer
+   * it twice, which the one-replier-per-topic check could no longer see.
+   */
+  private assertUsablePattern(
+    pattern: RegExp,
+    reply: boolean,
+    handler: string,
+  ): void {
+    if (!pattern.source.startsWith('^') || pattern.flags !== '') {
+      throw new Error(
+        `Kafka handler ${handler} subscribes to ${String(pattern)}, but a topic ` +
+          'pattern must start with "^" and carry no flags — the form ' +
+          "Confluent's client hands to librdkafka. Anchor it, e.g. " +
+          '/^orders\\..*/.',
+      );
+    }
+    if (JS_ONLY_PATTERN_SYNTAX.test(pattern.source)) {
+      throw new Error(
+        `Kafka handler ${handler} subscribes to ${String(pattern)}, which uses ` +
+          'syntax only JavaScript understands. librdkafka matches the ' +
+          'subscription with POSIX extended regular expressions, which read ' +
+          '\\d as a literal "d" and reject (?:…) and lookarounds — so the ' +
+          'broker would subscribe to other topics than this package routes. ' +
+          'Use [0-9], [A-Za-z0-9_], and plain groups instead.',
+      );
+    }
+    if (reply) {
+      throw new Error(
+        `Kafka handler ${handler} declares "reply: true" on the pattern ` +
+          `${String(pattern)}. A replying handler must name its request topic: ` +
+          'with patterns, two repliers could match one topic and answer every ' +
+          'request twice.',
+      );
     }
   }
 
@@ -545,4 +578,33 @@ export class KafkaConsumerExplorer
 
 function describeError(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
+}
+
+/**
+ * Regex syntax JavaScript understands but librdkafka's POSIX engine does not:
+ * `(?` (non-capturing groups, lookarounds, named groups) and the backslash
+ * classes. The pattern is matched twice — by `librdkafka` for the subscription,
+ * by JavaScript for routing — so both must read it the same way.
+ */
+const JS_ONLY_PATTERN_SYNTAX = /\(\?|\\[dDwWsSbB]/;
+
+/**
+ * Group handlers into the dispatcher's routes: by exact topic, and by pattern —
+ * handlers sharing a pattern's source share one route, as handlers sharing a
+ * topic do.
+ */
+function buildRoutes(handlers: DiscoveredHandler[]): KafkaRoutes {
+  const topics = new Map<string, DiscoveredHandler[]>();
+  const patterns = new Map<string, { pattern: RegExp; handlers: DiscoveredHandler[] }>();
+  for (const handler of handlers) {
+    const { topic } = handler;
+    if (typeof topic === 'string') {
+      topics.set(topic, [...(topics.get(topic) ?? []), handler]);
+      continue;
+    }
+    const route = patterns.get(topic.source) ?? { pattern: topic, handlers: [] };
+    route.handlers.push(handler);
+    patterns.set(topic.source, route);
+  }
+  return { topics, patterns: [...patterns.values()] };
 }
