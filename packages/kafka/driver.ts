@@ -198,11 +198,11 @@ export interface KafkaEachBatchPayload {
   /**
    * Mark one message in the batch as processed so its offset can be committed.
    *
-   * Resolving offsets per message — rather than only at the end of the batch —
-   * is what makes batch consumption rebalance-safe (`nestjs/nest#12355`): a
-   * partition revoked mid-batch keeps the offsets already resolved, so the next
-   * owner resumes after the last processed message instead of replaying the
-   * whole batch or hanging.
+   * Confluent's client stores a resolved offset for commit immediately and,
+   * when the batch callback throws, redelivers only what comes after the last
+   * resolved offset. The transport therefore resolves a batch only once its
+   * handlers have finished with it — resolving earlier tells the client the
+   * batch was processed before it was.
    */
   resolveOffset: (offset: string) => void;
 }
@@ -256,10 +256,10 @@ export interface KafkaConsumerRunConfig {
   partitionsConsumedConcurrently?: number;
 
   /**
-   * When `true` (the default for `eachBatch`) the client commits the batch's
-   * last offset automatically once the callback returns. The transport disables
-   * it and resolves offsets per message instead so a rebalance mid-batch never
-   * loses or replays processed messages.
+   * When `true` (the default for `eachBatch`) the client resolves the batch's
+   * last offset automatically once the callback returns. The transport
+   * disables it and resolves the batch itself, after its handlers have
+   * finished with it, so that rule does not depend on one client's option.
    */
   eachBatchAutoResolve?: boolean;
 }

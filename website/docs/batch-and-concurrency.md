@@ -2,9 +2,7 @@
 
 This page covers batch consumption, per-topic concurrency
 ([`nestjs/nest#12703`](https://github.com/nestjs/nest/issues/12703)),
-rebalance-safe offsets
-([`nestjs/nest#12355`](https://github.com/nestjs/nest/issues/12355)), and
-backpressure.
+batch offsets and redelivery, and backpressure.
 
 ## Batch Consumption
 
@@ -49,14 +47,32 @@ KafkaModule.forRoot({
 });
 ```
 
-## Rebalance-Safe Offsets (`#12355`)
+## Batch Offsets and Redelivery
 
-Batch consumers resolve each message's offset as the batch is processed — the
-client's all-or-nothing auto-resolve is disabled. If a partition is revoked
-mid-batch during a rebalance, the consumer keeps the progress already made instead
-of replaying the whole batch or hanging. Combined with the rule that offsets
-commit only after a successful handler return, in-flight messages either complete
-or are explicitly accounted for.
+A batch is committed only after it has been handled. The transport resolves a
+batch's offsets once every handler routed to its topic has returned — or has
+failed with an error the [error mapper](error-mapping.md) maps to `'commit'`. A
+failure mapped to `'retry'` leaves them unresolved, so the client seeks back to
+the batch's first message and the broker hands the whole batch back.
+
+The batch is the unit of work. A handler receives every message at once, so the
+transport cannot know which of them the handler finished before it failed, and
+it never claims more than the handler reported. Batch consumption is therefore
+at-least-once, like per-message consumption: a redelivered batch runs again in
+full — including messages a failed attempt had already processed — and so does
+a batch whose partition was revoked mid-flight and reassigned elsewhere. Make
+batch handlers idempotent.
+
+Versions up to 0.5.1 resolved the offsets while the batch was being decoded,
+before the handler ran, so a batch that failed with `'retry'` was committed and
+never redelivered. The real-broker suite now proves the redelivery.
+
+Rebalances themselves are the client's business.
+[`nestjs/nest#12355`](https://github.com/nestjs/nest/issues/12355) was a
+rebalance that never settled, caused by the official transport's custom
+reply-partition assigner. This package uses the client's standard assignors —
+request-reply included, which consumes replies through a single-member group
+per instance — so that loop cannot form.
 
 ## Backpressure
 

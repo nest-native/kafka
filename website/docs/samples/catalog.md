@@ -41,8 +41,7 @@ Related docs: [Parameter Decorators](../parameter-decorators.md),
 
 Batch consumption (`@KafkaHandler({batch: true})`, `@KafkaBatch()`), per-topic
 concurrency ([`nestjs/nest#12703`](https://github.com/nestjs/nest/issues/12703)),
-and rebalance-safe offset resolution
-([`nestjs/nest#12355`](https://github.com/nestjs/nest/issues/12355)).
+and batch offsets that are resolved only once the batch is handled.
 
 Related docs: [Batch & Concurrency](../batch-and-concurrency.md).
 

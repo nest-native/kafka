@@ -411,8 +411,9 @@ export class KafkaConsumerExplorer
     if (first.batch) {
       return {
         partitionsConsumedConcurrently,
-        // Offsets resolve per message inside the dispatcher, so disable the
-        // client's all-or-nothing auto-resolve for rebalance safety.
+        // The dispatcher resolves a batch's offsets itself, once its handlers
+        // settled without a 'retry' — the rule lives in this package rather
+        // than in one client's auto-resolve, so every driver gets it.
         eachBatchAutoResolve: false,
         eachBatch: payload => dispatcher.eachBatch(payload),
       };

@@ -16,11 +16,10 @@ What it shows:
   aggregate at the same time. Ordering *within* a partition is always preserved.
   The default is `1` (strict ordering); raise it to opt in. Resolution is
   handler → consumer → `KafkaModule.forRoot({ concurrency })` → `1`.
-- **Rebalance safety (`nestjs/nest#12355`).** The transport resolves each
-  message's offset as the batch is processed (it disables the client's
-  all-or-nothing `eachBatchAutoResolve`). A partition revoked mid-batch keeps the
-  offsets already resolved, so the next owner resumes after the last processed
-  message instead of replaying the whole batch or hanging.
+- **Batch offsets.** The batch is the unit of work: the transport resolves its
+  offsets only after the handler returns (or fails with an error mapped to
+  `'commit'`). A `'retry'` resolves nothing, so the broker hands the whole batch
+  back; make batch handlers idempotent.
 - **Backpressure.** `KafkaModule.forRoot({ maxInFlight })` (or the per-consumer /
   per-handler override) caps how many batches a consumer processes at once, so a
   fast broker cannot overwhelm slow handlers. The default is uncapped.
@@ -28,7 +27,7 @@ What it shows:
 
 The smoke test ingests a window across two partitions and asserts: one handler
 invocation per partition batch, the per-partition aggregates, and that every
-message offset was resolved (rebalance safety).
+message offset was resolved once its batch was handled.
 
 ## Run it
 

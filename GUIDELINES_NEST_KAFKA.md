@@ -309,6 +309,23 @@ with a new argument, or depends on real group-assignment timing, the
 `KAFKA_BROKERS`-gated suite gets a case for it in the same PR — unit coverage of
 that code proves only that we called ourselves consistently.
 
+**A batch is resolved only after its handlers are done with it.** Until 0.5.1
+the dispatcher resolved every offset of a batch while decoding it, before the
+handler ran, citing rebalance safety (`#12355`). But a batch handler receives
+all its messages at once, so there was never partial progress to keep — and
+Confluent's client stores a resolved offset for commit immediately and, when
+`eachBatch` throws, redelivers only past the last resolved offset. A
+`'retry'`-mapped batch was committed and lost. Nothing caught it: the in-memory
+broker's `resolveOffset` is a no-op and it never redelivers, and every unit test
+passed `resolveOffset: () => {}`. The batch is now the unit of work, resolved in
+full after its handlers settle without a `'retry'` and not at all otherwise; the
+real-broker suite proves the redelivery. Two rules follow. A test double that
+ignores an argument proves nothing about how that argument is used — assert
+what `resolveOffset` receives, and when. And a documented claim about broker
+behaviour needs a real-broker case behind it. (`#12355` itself was a rebalance
+loop in the official transport's custom reply-partition assigner, which this
+package never had.)
+
 **NestJS majors are adopted by widening the peer range, and the `@nestjs/*`
 devDependencies stay on the older major.** NestJS 12 (2026-08) was added as
 `^11.0.0 || ^12.0.0` on `@nestjs/common`, `@nestjs/core`, and

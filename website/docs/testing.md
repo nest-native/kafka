@@ -48,8 +48,11 @@ the broker with the `KAFKA_TEST_BROKER` token or `@InjectKafkaTestBroker()`.
 - `getSent()` / `getSentTo(topic)` return what producers wrote, for assertions.
 
 It exercises the same code paths as production — enhancers, error mapping, batch
-offsets, transactions, drain — so the behavior you assert in a test is the
-behavior you get against a broker.
+dispatch, transactions, drain. What it does not model is the commit log: it
+never redelivers a message or a batch whose error maps to `'retry'`, and
+resolving an offset does nothing. Assert the mapping itself — the delivery
+rejects for `'retry'` and resolves for `'commit'` — and prove redelivery against
+a real broker.
 
 ## Awaiting Handler Completion
 

@@ -42,8 +42,9 @@ export interface DispatchHandler {
  *
  * One dispatcher backs one Kafka consumer. It owns the cross-cutting consumption
  * concerns the constitution and BRIEF §9 require — backpressure
- * ({@link KafkaBackpressure}), rebalance-safe offset resolution (batch mode), and
- * error mapping — so the explorer stays focused on discovery and wiring.
+ * ({@link KafkaBackpressure}), batch offset resolution (only after a batch is
+ * handled), and error mapping — so the explorer stays focused on discovery and
+ * wiring.
  *
  * @internal
  */
@@ -84,17 +85,25 @@ export class KafkaDispatcher {
   }
 
   /**
-   * Dispatch one fetched batch to every handler routed to its topic, resolving
-   * each message's offset as the batch is built so a rebalance mid-batch keeps
-   * the progress already made (`nestjs/nest#12355`).
+   * Dispatch one fetched batch to every handler routed to its topic, then
+   * resolve its offsets — only once every handler has returned, or failed with
+   * an error mapped to `'commit'`. A `'retry'`-mapped failure rejects before
+   * anything is resolved, so the client seeks back to the batch's first message
+   * and the broker hands the whole batch back.
+   *
+   * The unit of work is the batch: a handler receives every message at once,
+   * so the transport cannot know which of them it finished before failing, and
+   * must never claim more than it did. Resolving while the batch was decoded,
+   * as this did until 0.5.1, told the client the batch was processed before the
+   * handler ran — a failed batch was committed and never redelivered.
    */
   eachBatch(payload: KafkaEachBatchPayload): Promise<void> {
     const matched = this.match(payload.batch.topic);
     if (!matched) {
       return Promise.resolve();
     }
-    const invocation = this.toBatchInvocation(payload);
-    return this.track(matched, invocation);
+    const invocation = this.toBatchInvocation(payload.batch);
+    return this.track(matched, invocation, () => resolveBatch(payload));
   }
 
   /**
@@ -118,13 +127,20 @@ export class KafkaDispatcher {
     return this.routes.get(topic);
   }
 
+  /**
+   * Run the matched handlers under backpressure and track the work for
+   * graceful shutdown. `onHandled` runs inside the tracked work, after every
+   * handler settled without a `'retry'` — so a drain waits for it too.
+   */
   private track(
     matched: DispatchHandler[],
     invocation: KafkaHandlerInvocation,
+    onHandled?: () => void,
   ): Promise<void> {
-    const work = this.backpressure.run(() =>
-      this.runHandlers(matched, invocation),
-    );
+    const work = this.backpressure.run(async () => {
+      await this.runHandlers(matched, invocation);
+      onHandled?.();
+    });
     this.inFlight.add(work);
     const forget = (): void => {
       this.inFlight.delete(work);
@@ -199,19 +215,24 @@ export class KafkaDispatcher {
     return { payload: deserializeKafkaValue(message.value), context };
   }
 
-  private toBatchInvocation(
-    payload: KafkaEachBatchPayload,
-  ): KafkaHandlerInvocation {
-    const batch: KafkaConsumerBatch = payload.batch;
-    const messages: unknown[] = [];
-    for (const message of batch.messages) {
-      messages.push(deserializeKafkaValue(message.value));
-      if (message.offset !== undefined) {
-        // Resolve each offset as it is decoded so a partition revoked mid-batch
-        // commits the progress already made rather than replaying the batch.
-        payload.resolveOffset(message.offset);
-      }
-    }
+  private toBatchInvocation(batch: KafkaConsumerBatch): KafkaHandlerInvocation {
+    const messages = batch.messages.map(message =>
+      deserializeKafkaValue(message.value),
+    );
     return { payload: messages, context: new KafkaBatchContext(batch) };
+  }
+}
+
+/**
+ * Mark every message of a handled batch as processed, so the client commits
+ * past it. Only called once the batch's handlers have settled without a
+ * `'retry'`; a message the driver delivered without an offset has nothing to
+ * resolve.
+ */
+function resolveBatch(payload: KafkaEachBatchPayload): void {
+  for (const message of payload.batch.messages) {
+    if (message.offset !== undefined) {
+      payload.resolveOffset(message.offset);
+    }
   }
 }

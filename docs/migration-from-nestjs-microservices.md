@@ -261,12 +261,17 @@ consumer's `partitionsConsumedConcurrently`. The default is `1` (strict
 per-partition ordering, matching the old behaviour); raise it to process
 partitions concurrently while preserving order within each partition.
 
-### Rebalance safety (`nestjs/nest#12355`)
+### Rebalances and batch offsets (`nestjs/nest#12355`)
 
-Batch consumers (`@KafkaHandler(topic?, { batch: true })`) resolve each message's
-offset as it is processed, with the client's all-or-nothing auto-resolve
-disabled, so a partition revoked mid-batch keeps the progress already made
-instead of replaying the whole batch or hanging.
+`#12355` was a rebalance that never settled, caused by the official
+transport's custom reply-partition assigner. This package uses the client's
+standard assignors, so that loop cannot form.
+
+Batch consumers (`@KafkaHandler(topic?, { batch: true })`) treat the batch as
+the unit of work: its offsets are resolved only after the handler returns (or
+fails with an error mapped to `'commit'`), and a `'retry'` hands the whole
+batch back. A redelivered batch — or one whose partition was revoked
+mid-flight — runs again in full, so make batch handlers idempotent.
 
 ### Transactions: `sendOffsets` (`kafkajs` → Confluent)
 

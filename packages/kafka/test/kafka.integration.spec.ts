@@ -49,7 +49,8 @@ import { KafkaRequestReplyService } from '../kafka-request-reply.service';
  * consume round-trip, a real transactional commit via
  * {@link KafkaProducerService.transactional}, per-topic-concurrency plus
  * offset-commit durability (a fresh consumer in the same group does not
- * redeliver already-committed messages), and recovery across a broker restart.
+ * redeliver already-committed messages), redelivery of a batch whose handler
+ * failed with `'retry'`, and recovery across a broker restart.
  * The second covers request-reply (ADR 0001) — see its own header below. Every
  * topic and group name is unique per run, so repeated CI runs against the same
  * broker never collide.
@@ -545,6 +546,87 @@ describe('Kafka real-broker integration', { skip }, () => {
         redelivered,
         [],
         'committed offsets must not be redelivered to a new consumer in the group',
+      );
+    } finally {
+      await secondApp.close();
+    }
+  });
+
+  it('redelivers a batch whose handler fails with a retryable error', async () => {
+    const topic = unique('it.batch-retry');
+    const groupId = unique('it-batch-retry-group');
+    await createTopic(topic, 1);
+    const failing = `fail-once-${randomUUID()}`;
+
+    @Injectable()
+    class BatchSink {
+      readonly batches: string[][] = [];
+      failuresLeft = 1;
+
+      countFor(value: string): number {
+        return this.batches.filter(batch => batch.includes(value)).length;
+      }
+    }
+
+    @Injectable()
+    @KafkaConsumer(topic, { groupId })
+    class BatchRetryConsumer {
+      constructor(private readonly sink: BatchSink) {}
+
+      @KafkaHandler(undefined, { batch: true })
+      handle(@KafkaMessage() values: string[]) {
+        this.sink.batches.push(values);
+        if (values.includes(failing) && this.sink.failuresLeft > 0) {
+          this.sink.failuresLeft -= 1;
+          // A plain Error maps to 'retry' under the default mapper: the batch
+          // is not done, so the broker must hand it back.
+          throw new Error('transient batch failure');
+        }
+      }
+    }
+
+    @Module({
+      imports: [
+        KafkaModule.forRoot({ clientId, client: { brokers }, driverFactory }),
+      ],
+      providers: [BatchSink, BatchRetryConsumer],
+    })
+    class BatchRetryModule {}
+
+    const firstApp = await Test.createTestingModule({
+      imports: [BatchRetryModule],
+    }).compile();
+    await firstApp.init();
+
+    try {
+      const sink = firstApp.get(BatchSink);
+      const producer = firstApp.get(KafkaProducerService);
+      await warmUpUntil(producer, topic, probe => sink.countFor(probe) > 0);
+
+      await producer.send({ topic, messages: [{ value: failing }] });
+      // Once for the failed attempt, once more for the redelivery. Before the
+      // fix the offsets were resolved while the batch was decoded, so the
+      // client considered the batch processed and never handed it back.
+      await waitFor(() => sink.countFor(failing) >= 2, { timeoutMs: 45_000 });
+      assert.equal(sink.failuresLeft, 0, 'the first attempt failed');
+    } finally {
+      await firstApp.close();
+    }
+
+    // The redelivered batch succeeded, so its offset must now be committed: a
+    // fresh consumer in the same group stays silent about it.
+    const secondApp = await Test.createTestingModule({
+      imports: [BatchRetryModule],
+    }).compile();
+    await secondApp.init();
+
+    try {
+      const sink = secondApp.get(BatchSink);
+      await delay(6_000);
+      assert.equal(
+        sink.countFor(failing),
+        0,
+        'a batch that eventually succeeded must not be redelivered to a new consumer',
       );
     } finally {
       await secondApp.close();

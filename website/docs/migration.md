@@ -149,8 +149,10 @@ These are the parts that are *not* a rename.
 - **Sequential per-topic processing ([`#12703`](https://github.com/nestjs/nest/issues/12703)).**
   `concurrency` sets `partitionsConsumedConcurrently`; default `1`. See
   [Batch & Concurrency](batch-and-concurrency.md).
-- **Rebalance safety ([`#12355`](https://github.com/nestjs/nest/issues/12355)).**
-  Batch consumers resolve each offset as it is processed. See
+- **Rebalance hangs ([`#12355`](https://github.com/nestjs/nest/issues/12355)).**
+  Caused by the official transport's custom reply-partition assigner; this
+  package uses the client's standard assignors. A batch commits only after it
+  is handled, and a `'retry'` hands the whole batch back. See
   [Batch & Concurrency](batch-and-concurrency.md).
 - **`sendOffsets` shape.** Takes the live consumer object, not a
   `consumerGroupId` string. See [Transactions](transactions.md).

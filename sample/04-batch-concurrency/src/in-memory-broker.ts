@@ -20,10 +20,10 @@ interface Registration {
  * to exercise batch consumption and per-partition concurrency without a real
  * Kafka broker or the native `librdkafka` install.
  *
- * It tracks which offsets the transport resolved so the smoke test can prove the
- * per-message offset resolution that makes batch consumption rebalance-safe
- * (`nestjs/nest#12355`): a partition revoked mid-batch keeps the resolved
- * offsets instead of replaying the whole batch.
+ * It tracks which offsets the transport resolved so the smoke test can prove a
+ * handled batch is resolved in full. The transport resolves a batch only after
+ * its handler returns, so a failed batch (mapped to `'retry'`) resolves nothing
+ * and a real broker hands it back.
  */
 export class InMemoryBroker {
   private readonly consumers: Registration[] = [];

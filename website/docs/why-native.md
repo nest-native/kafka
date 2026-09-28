@@ -16,7 +16,7 @@ Each issue scenario has a regression test in the package suite.
 | --- | --- | --- |
 | [`#13223`](https://github.com/nestjs/nest/issues/13223) | kafkajs is unmaintained | Built on Confluent's `@confluentinc/kafka-javascript`, the client Confluent proposed as the replacement |
 | [`#12703`](https://github.com/nestjs/nest/issues/12703) | Sequential per-topic processing | A `concurrency` option maps to `partitionsConsumedConcurrently`, with a documented default of `1` and an opt-out — see [Batch & Concurrency](batch-and-concurrency.md) |
-| [`#12355`](https://github.com/nestjs/nest/issues/12355) | Rebalance hangs / lost progress | Batch consumers resolve each offset as it is processed, so a partition revoked mid-batch keeps the progress made — see [Batch & Concurrency](batch-and-concurrency.md) |
+| [`#12355`](https://github.com/nestjs/nest/issues/12355) | Rebalance hangs | The hang came from the official transport's custom reply-partition assigner; this package uses the client's standard assignors, and request-reply consumes through a single-member group per instance, so there is nothing to rebalance into a loop. Offsets commit only after a handler (or a whole batch) is done — see [Batch & Concurrency](batch-and-concurrency.md) |
 | [`#9679`](https://github.com/nestjs/nest/issues/9679) | Exceptions swallowed | Errors map to commit/retry behavior, with a configurable mapper — see [Error Mapping](error-mapping.md) |
 
 ## What "Native" Means Here

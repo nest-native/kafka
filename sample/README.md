@@ -17,8 +17,8 @@ Current samples:
 - `03-headers-context-errors` — the `@KafkaMessage` / `@KafkaHeaders` /
   `@KafkaCtx` parameter decorators, error mapping, and graceful shutdown.
 - `04-batch-concurrency` — batch consumption (`@KafkaHandler({ batch: true })`,
-  `@KafkaBatch()`), per-topic concurrency (`nestjs/nest#12703`), and
-  rebalance-safe offset resolution (`nestjs/nest#12355`).
+  `@KafkaBatch()`), per-topic concurrency (`nestjs/nest#12703`), and batch
+  offsets resolved only once the batch is handled.
 - `05-transactions` — the transactional producer helper
   (`KafkaProducerService.transactional`): atomic multi-topic writes, abort on
   throw, and the consume-process-produce `sendOffsets` pattern.
