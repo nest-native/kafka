@@ -49,6 +49,14 @@ package release is useful for users.
 
 ### Fixed
 
+- **An async error mapper is awaited.** The transport compared the mapper's
+  result without awaiting it, so an async mapper's promise never equalled
+  `'retry'`: every message it saw was committed — before the dead-letter
+  produce the documented pattern performs had finished, and even when that
+  produce failed (an unhandled rejection after the commit). The documented
+  example did not compile either, since the mapper type was synchronous.
+  `KafkaErrorMapper` may now return a promise, the transport awaits it, and a
+  mapper that throws or rejects leaves the message to be retried.
 - **Graceful shutdown no longer commits records it did not process.** Once the
   drain began, a record the client still delivered was ignored — and returning
   from `eachMessage` without an error is how Confluent's client learns a record

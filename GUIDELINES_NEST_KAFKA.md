@@ -330,10 +330,12 @@ package never had.)
 soon as `eachMessage` returns without an error — and a batch's offsets as soon
 as they are resolved — and commits whatever it stored. Every path that returns
 normally therefore claims the record was handled, whether a handler ran or not.
-That was false twice, with the same result: batches resolved while being decoded
-(above), and records delivered during the shutdown drain, which the dispatcher
-ignored and returned from, so one was committed unprocessed on every redeploy
-under load. The rule: a record the transport did not hand to a handler is
+That was false three times, with the same result: batches resolved while being
+decoded (above); records delivered during the shutdown drain, which the
+dispatcher ignored and returned from, so one was committed unprocessed on every
+redeploy under load; and an async error mapper, whose promise was compared to
+`'retry'` without being awaited, so every record it saw was committed before its
+dead-letter produce finished, or even when it failed. The rule: a record the transport did not hand to a handler is
 rejected (per message) or left unresolved (batch), never returned from. The one
 deliberate exception is a record for a topic nothing routes, which is
 acknowledged so it cannot stall its partition. Shutdown pauses every consumer

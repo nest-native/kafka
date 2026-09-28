@@ -65,6 +65,10 @@ export interface KafkaModuleOptions {
    * Only errors that escape the handler's `@UseFilters` exception filters reach
    * this mapper, so an application can still acknowledge any error by catching
    * it in a filter.
+   *
+   * It may be async — the transport awaits it, so a dead-letter produce inside
+   * it finishes before the record is committed, and a mapper that throws or
+   * rejects leaves the record to be retried.
    */
   errorMapper?: KafkaErrorMapper;
 
