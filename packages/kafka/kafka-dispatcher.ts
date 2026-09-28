@@ -20,6 +20,7 @@ import { KafkaHandlerInvocation } from './kafka-context-creator';
 import { deserializeKafkaValue } from './kafka-message-codec';
 import { KafkaReplyPublisher } from './kafka-reply-publisher';
 import { KafkaReplyOutcome } from './kafka-request-reply.protocol';
+import { KafkaRetryBackoff } from './kafka-retry-backoff';
 
 /**
  * One discovered handler reduced to what the dispatcher needs: the runner that
@@ -68,6 +69,8 @@ export class KafkaDispatcher {
     private readonly errorMapper: KafkaErrorMapper,
     maxInFlight: number,
     private readonly replier: KafkaReplyPublisher,
+    /** Absent when the backoff is off, or the driver cannot pause. */
+    private readonly backoff?: KafkaRetryBackoff,
   ) {
     this.backpressure = createBackpressure(maxInFlight);
   }
@@ -92,7 +95,12 @@ export class KafkaDispatcher {
       return Promise.resolve();
     }
     const invocation = this.toMessageInvocation(payload);
-    return this.track(matched, invocation);
+    return this.settle(
+      payload.topic,
+      payload.partition,
+      payload.message.offset,
+      this.track(matched, invocation),
+    );
   }
 
   /**
@@ -123,7 +131,12 @@ export class KafkaDispatcher {
       return Promise.resolve();
     }
     const invocation = this.toBatchInvocation(payload.batch);
-    return this.track(matched, invocation, () => resolveBatch(payload));
+    return this.settle(
+      payload.batch.topic,
+      payload.batch.partition,
+      payload.batch.messages[0]?.offset,
+      this.track(matched, invocation, () => resolveBatch(payload)),
+    );
   }
 
   /**
@@ -133,7 +146,30 @@ export class KafkaDispatcher {
    */
   async drain(): Promise<void> {
     this.shuttingDown = true;
+    // A pending resume would fire after the consumer disconnects.
+    this.backoff?.cancelAll();
     await Promise.allSettled([...this.inFlight]);
+  }
+
+  /**
+   * Report how a record (or a batch, by its first offset) ended to the retry
+   * backoff. A rejection is a `'retry'` — the client is about to seek back to
+   * the record — so its partition is paused for the next delay before the
+   * rejection reaches the client; a success ends the partition's streak.
+   */
+  private async settle(
+    topic: string,
+    partition: number,
+    offset: string | undefined,
+    work: Promise<void>,
+  ): Promise<void> {
+    try {
+      await work;
+    } catch (error) {
+      this.backoff?.failed(topic, partition, offset);
+      throw error;
+    }
+    this.backoff?.succeeded(topic, partition);
   }
 
   /**

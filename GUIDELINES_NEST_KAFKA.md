@@ -341,6 +341,20 @@ before draining, so late records are rare and the rejection path stays quiet,
 and a real-broker case shuts an application down mid-stream and requires the
 next member of the group to receive every record the first one did not process.
 
+**Retries back off by pausing the partition, and never give up.** Confluent's
+client redelivers a `'retry'` by seeking back to it, and the next fetch returns
+it a flat ~505 ms later (`fetch.wait.max.ms`), forever — measured on a real
+broker — so an outage turned every stuck partition into two calls a second
+against the dependency that was failing. The backoff (`retryBackoff`, 1 s
+doubling to 30 s by default) pauses only the failing partition and resumes it
+when the delay is up. Sleeping in the handler path instead would hold the worker
+every partition of the consumer shares; the real-broker suite proves a sibling
+partition keeps flowing on a single worker. The backoff never converts a retry
+into a commit — bounding retries is the error mapper's decision — and its
+timers are cancelled when shutdown begins, because a resume after disconnect
+throws. Streaks are per consumer and in memory, so a rebalance or a restart
+starts a record over at the initial delay; the docs say so.
+
 **NestJS majors are adopted by widening the peer range, and the `@nestjs/*`
 devDependencies stay on the older major.** NestJS 12 (2026-08) was added as
 `^11.0.0 || ^12.0.0` on `@nestjs/common`, `@nestjs/core`, and

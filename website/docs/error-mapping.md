@@ -20,6 +20,39 @@ where the official transport quietly dropped exceptions.
 Offsets commit only after a handler returns successfully, so a `'retry'` simply
 means the offset is never advanced for that message.
 
+## Retries Back Off
+
+Left to itself, Confluent's client redelivers a `'retry'`-mapped message by
+seeking back to it, and the next fetch hands it over again — measured at a flat
+~0.5 s apart on a real broker, forever. During an outage that is two calls a
+second per stuck partition against whatever is already failing.
+
+So the transport backs off. When a message (or a batch) fails with `'retry'`, it
+pauses **that partition** for a delay, lets the client seek back, and resumes
+the partition when the delay is up. The delay starts at 1 s and doubles with
+every consecutive failure of the same message, up to 30 s; it starts over once
+the partition handles something, or a different message fails. The consumer's
+other partitions keep flowing meanwhile — the backoff never sleeps in the
+handler path, which would hold the worker every partition shares.
+
+```ts
+KafkaModule.forRoot({
+  client: {brokers: ['localhost:9092']},
+  retryBackoff: {initialDelayMs: 500, multiplier: 2, maxDelayMs: 60_000},
+  // retryBackoff: false — redeliver immediately, as the client does on its own
+});
+```
+
+The backoff never gives up on a message: turning a retry into a commit is the
+mapper's decision, not the transport's. It needs a driver that can pause and
+resume partitions; the Confluent driver can, and with a custom driver that
+cannot, retries redeliver immediately. Streaks live in memory, per consumer — a
+rebalance or a restart starts a failing message over at the initial delay.
+
+Because a `'retry'` sends no reply, a replying handler that keeps failing now
+takes longer to answer; the caller's timeout still bounds its wait. See
+[Request-Reply](request-reply.md).
+
 ## Filters Run First
 
 Only errors that escape the handler's `@UseFilters` exception filters reach the

@@ -58,6 +58,8 @@ See [Producer](producer.md) and [Transactions](transactions.md).
 | `KafkaErrorBehavior` | type | `'commit' \| 'retry'`. |
 | `defaultKafkaErrorMapper` | const | Commits 4xx client errors, retries the rest. |
 | `KafkaErrorContext` | type | `KafkaContext \| KafkaBatchContext`. |
+| `KafkaRetryBackoffOptions` | interface | `initialDelayMs`, `maxDelayMs`, `multiplier` for the `retryBackoff` module option. |
+| `DEFAULT_KAFKA_RETRY_BACKOFF` | const | `{ initialDelayMs: 1000, maxDelayMs: 30000, multiplier: 2 }`. |
 
 See [Error Mapping](error-mapping.md).
 

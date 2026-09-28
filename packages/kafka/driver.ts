@@ -296,8 +296,19 @@ export interface KafkaDriverConsumer {
    * driver without it loses nothing either, because the transport rejects any
    * record delivered after shutdown began — the client then seeks back instead
    * of committing it — only more noisily, since the client logs each rejection.
+   *
+   * With {@link resume} it also spaces out retries: a partition whose record
+   * failed with `'retry'` is paused for the backoff delay
+   * ({@link KafkaModuleOptions.retryBackoff}).
    */
   pause?(topics: KafkaTopicPartitions[]): void;
+
+  /**
+   * Hand the given paused topic partitions back to `eachMessage` /
+   * `eachBatch`. Optional; without it (or without {@link pause}) retries are
+   * redelivered immediately instead of backing off.
+   */
+  resume?(topics: KafkaTopicPartitions[]): void;
 }
 
 /**

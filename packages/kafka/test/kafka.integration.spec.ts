@@ -51,7 +51,8 @@ import { KafkaRequestReplyService } from '../kafka-request-reply.service';
  * offset-commit durability (a fresh consumer in the same group does not
  * redeliver already-committed messages), redelivery of a batch whose handler
  * failed with `'retry'`, a mid-stream graceful shutdown that commits nothing it
- * did not process, and recovery across a broker restart.
+ * did not process, a retry backoff whose delay grows and that pauses only the
+ * failing partition, and recovery across a broker restart.
  * The second covers request-reply (ADR 0001) — see its own header below. Every
  * topic and group name is unique per run, so repeated CI runs against the same
  * broker never collide.
@@ -714,6 +715,162 @@ describe('Kafka real-broker integration', { skip }, () => {
             'never processed were committed anyway and are lost',
         );
       });
+    } finally {
+      await secondApp.close();
+    }
+  });
+
+  it('backs off a retried record, waiting longer after each failure', async () => {
+    const topic = unique('it.backoff');
+    const groupId = unique('it-backoff-group');
+    await createTopic(topic, 1);
+    const flaky = `flaky-${randomUUID()}`;
+
+    @Injectable()
+    class AttemptLog {
+      readonly attempts: number[] = [];
+    }
+
+    @Injectable()
+    @KafkaConsumer(topic, { groupId })
+    class FlakyConsumer {
+      constructor(
+        private readonly sink: MessageSink,
+        private readonly log: AttemptLog,
+      ) {}
+
+      @KafkaHandler()
+      handle(@KafkaMessage() value: string, @KafkaCtx() context: KafkaContext) {
+        this.sink.record(value, context);
+        if (value === flaky) {
+          this.log.attempts.push(Date.now());
+          if (this.log.attempts.length < 4) {
+            throw new Error('downstream unavailable');
+          }
+        }
+      }
+    }
+
+    @Module({
+      imports: [
+        KafkaModule.forRoot({
+          clientId,
+          client: { brokers },
+          driverFactory,
+          retryBackoff: { initialDelayMs: 400, multiplier: 2, maxDelayMs: 5_000 },
+        }),
+      ],
+      providers: [MessageSink, AttemptLog, FlakyConsumer],
+    })
+    class BackoffModule {}
+
+    const app = await Test.createTestingModule({
+      imports: [BackoffModule],
+    }).compile();
+    await app.init();
+
+    try {
+      const producer = app.get(KafkaProducerService);
+      const log = app.get(AttemptLog);
+      await warmUp(producer, app.get(MessageSink), topic);
+
+      await producer.send({ topic, messages: [{ value: flaky }] });
+      await waitFor(() => log.attempts.length === 4, { timeoutMs: 30_000 });
+
+      const gaps = log.attempts.slice(1).map((at, index) => at - log.attempts[index]);
+      // Without the backoff the client redelivers a flat ~0.5 s apart; with it
+      // each wait is at least the configured delay, and it doubles.
+      assert.ok(gaps[0] >= 400, `first redelivery after ${gaps[0]} ms, expected >= 400`);
+      assert.ok(gaps[1] >= 800, `second redelivery after ${gaps[1]} ms, expected >= 800`);
+      assert.ok(gaps[2] >= 1_600, `third redelivery after ${gaps[2]} ms, expected >= 1600`);
+      assert.ok(gaps[0] < gaps[1] && gaps[1] < gaps[2], `gaps grow: ${gaps.join(', ')}`);
+    } finally {
+      await app.close();
+    }
+  });
+
+  it('keeps other partitions flowing while one backs off, and leaves its record on shutdown', async () => {
+    const topic = unique('it.backoff-partitions');
+    const groupId = unique('it-backoff-partitions-group');
+    await createTopic(topic, 2);
+    const stuck = `stuck-${randomUUID()}`;
+    const bystander = `bystander-${randomUUID()}`;
+
+    @Injectable()
+    class StuckState {
+      failStuck = false;
+      failedAt?: number;
+    }
+
+    @Injectable()
+    @KafkaConsumer(topic, { groupId })
+    class PartitionedConsumer {
+      constructor(
+        private readonly sink: MessageSink,
+        private readonly state: StuckState,
+      ) {}
+
+      @KafkaHandler()
+      handle(@KafkaMessage() value: string, @KafkaCtx() context: KafkaContext) {
+        if (value === stuck && this.state.failStuck) {
+          this.state.failedAt ??= Date.now();
+          throw new Error('partition 0 depends on something that is down');
+        }
+        this.sink.record(value, context);
+      }
+    }
+
+    @Module({
+      imports: [
+        KafkaModule.forRoot({
+          clientId,
+          client: { brokers },
+          driverFactory,
+          // concurrency stays 1: a single worker serves both partitions, so an
+          // in-handler sleep would stall partition 1 behind partition 0.
+          retryBackoff: { initialDelayMs: 10_000, maxDelayMs: 10_000 },
+        }),
+      ],
+      providers: [MessageSink, StuckState, PartitionedConsumer],
+    })
+    class PartitionedModule {}
+
+    const firstApp = await Test.createTestingModule({
+      imports: [PartitionedModule],
+    }).compile();
+    await firstApp.init();
+
+    try {
+      const sink = firstApp.get(MessageSink);
+      const state = firstApp.get(StuckState);
+      const producer = firstApp.get(KafkaProducerService);
+      await warmUp(producer, sink, topic, 0);
+      await warmUp(producer, sink, topic, 1);
+
+      state.failStuck = true;
+      await producer.send({ topic, messages: [{ partition: 0, value: stuck }] });
+      await waitFor(() => state.failedAt !== undefined);
+
+      await producer.send({ topic, messages: [{ partition: 1, value: bystander }] });
+      await waitFor(() => sink.seen(bystander), { timeoutMs: 8_000 });
+      assert.ok(
+        Date.now() - (state.failedAt ?? 0) < 10_000,
+        'partition 1 was handled while partition 0 was still backing off',
+      );
+    } finally {
+      // Shut down mid-backoff: the stuck record was never handled, so it must
+      // not be committed.
+      await firstApp.close();
+    }
+
+    const secondApp = await Test.createTestingModule({
+      imports: [PartitionedModule],
+    }).compile();
+    await secondApp.init();
+
+    try {
+      const sink = secondApp.get(MessageSink);
+      await waitFor(() => sink.seen(stuck), { timeoutMs: 45_000 });
     } finally {
       await secondApp.close();
     }

@@ -45,6 +45,11 @@ import {
 import { Controller } from './kafka-params.resolver';
 import { KafkaProducerService } from './kafka-producer.service';
 import { KafkaReplyPublisher } from './kafka-reply-publisher';
+import {
+  KafkaRetryBackoff,
+  KafkaRetryBackoffOptions,
+  resolveRetryBackoff,
+} from './kafka-retry-backoff';
 import { resolveHeaderKeys } from './kafka-request-reply.protocol';
 import { KAFKA_CLIENT_DRIVER, KAFKA_MODULE_OPTIONS } from './tokens';
 
@@ -116,6 +121,8 @@ export class KafkaConsumerExplorer
   private readonly running: RunningConsumer[] = [];
   private readonly errorMapper: KafkaErrorMapper;
   private readonly replier: KafkaReplyPublisher;
+  /** Resolved `retryBackoff`, or `undefined` when it is turned off. */
+  private readonly retryBackoff: Required<KafkaRetryBackoffOptions> | undefined;
 
   constructor(
     private readonly metadataScanner: MetadataScanner,
@@ -131,6 +138,7 @@ export class KafkaConsumerExplorer
       createKafkaEnhancerRuntime(this.modulesContainer, this.applicationConfig),
     );
     this.errorMapper = this.options.errorMapper ?? defaultKafkaErrorMapper;
+    this.retryBackoff = resolveRetryBackoff(this.options.retryBackoff);
     // A replier is configuration-free by design: it answers wherever the
     // request's headers say. Only the header *keys* are configurable, and they
     // default to the `@nestjs/microservices` ones, so a migrated handler
@@ -414,6 +422,7 @@ export class KafkaConsumerExplorer
       this.errorMapper,
       maxInFlight,
       this.replier,
+      this.createBackoff(consumer),
     );
     const topics = [...routes.keys()];
     this.running.push({ consumer, dispatcher, topics });
@@ -421,6 +430,24 @@ export class KafkaConsumerExplorer
     await consumer.connect();
     await consumer.subscribe({ topics });
     await consumer.run(this.runConfig(first, dispatcher, handlers));
+  }
+
+  /**
+   * The retry backoff for one consumer, or `undefined` when it is turned off or
+   * the driver cannot pause and resume partitions — retries then redeliver
+   * immediately, as the client does on its own.
+   */
+  private createBackoff(
+    consumer: KafkaDriverConsumer,
+  ): KafkaRetryBackoff | undefined {
+    const { pause, resume } = consumer;
+    if (!this.retryBackoff || !pause || !resume) {
+      return undefined;
+    }
+    return new KafkaRetryBackoff(this.retryBackoff, {
+      pause: topics => pause.call(consumer, topics),
+      resume: topics => resume.call(consumer, topics),
+    });
   }
 
   /**
