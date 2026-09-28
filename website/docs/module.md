@@ -33,6 +33,7 @@ export class AppModule {}
 | `client` | `KafkaClientConfig` | — | Connection config forwarded to the Confluent client. `brokers` is required to reach a real broker. |
 | `producer` | `KafkaProducerConfig` | — | Producer config, including `transactionalId` — see [Transactions](transactions.md). |
 | `errorMapper` | `KafkaErrorMapper` | `defaultKafkaErrorMapper` | Map an unhandled handler error to `'commit'` or `'retry'` — see [Error Mapping](error-mapping.md). |
+| `retryBackoff` | `KafkaRetryBackoffOptions \| false` | 1 s, ×2, up to 30 s | How long a partition waits before a `'retry'` is redelivered; `false` redelivers immediately — see [Error Mapping](error-mapping.md#retries-back-off). |
 | `concurrency` | `number` | `1` | Default partitions consumed concurrently — see [Batch & Concurrency](batch-and-concurrency.md). |
 | `maxInFlight` | `number` | `0` (uncapped) | Default backpressure cap per consumer. |
 | `driverFactory` | `KafkaDriverFactory` | Confluent driver | Advanced override; supply a fake driver to test without a broker. |

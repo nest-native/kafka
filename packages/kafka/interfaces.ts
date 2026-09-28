@@ -8,6 +8,7 @@ import {
   KafkaProducerMessage,
 } from './driver';
 import { KafkaErrorMapper } from './kafka-error-mapping';
+import { KafkaRetryBackoffOptions } from './kafka-retry-backoff';
 
 /**
  * Configuration for {@link KafkaModule.forRoot}.
@@ -66,6 +67,23 @@ export interface KafkaModuleOptions {
    * it in a filter.
    */
   errorMapper?: KafkaErrorMapper;
+
+  /**
+   * How long a partition waits before a record whose failure maps to `'retry'`
+   * is redelivered: `initialDelayMs` (1 s), growing by `multiplier` (2) with
+   * each consecutive failure of the same record, up to `maxDelayMs` (30 s).
+   *
+   * The failing partition is paused for the delay, not the consumer: its other
+   * partitions keep flowing. A record is never given up on — turning a retry
+   * into a commit is the {@link errorMapper}'s decision. `false` redelivers
+   * immediately, as the client does on its own (a flat ~0.5 s apart).
+   *
+   * Needs a driver that can pause and resume partitions, as the Confluent
+   * driver can; with one that cannot, retries redeliver immediately.
+   *
+   * @default { initialDelayMs: 1000, maxDelayMs: 30000, multiplier: 2 }
+   */
+  retryBackoff?: KafkaRetryBackoffOptions | false;
 
   /**
    * Default partition concurrency for every consumer the module starts, unless a

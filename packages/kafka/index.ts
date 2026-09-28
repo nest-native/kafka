@@ -9,6 +9,8 @@ export * from './kafka-handler.decorator';
 export * from './kafka-params.decorators';
 export * from './kafka-context';
 export * from './kafka-error-mapping';
+export { DEFAULT_KAFKA_RETRY_BACKOFF } from './kafka-retry-backoff';
+export type { KafkaRetryBackoffOptions } from './kafka-retry-backoff';
 export * from './kafka-request-reply.service';
 export * from './kafka-request-reply.errors';
 export {

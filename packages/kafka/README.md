@@ -252,6 +252,10 @@ transport maps the error to consumer behaviour instead of swallowing it
   thrown value) is treated as transient and retried: the offset is left
   uncommitted so the broker redelivers.
 
+Retries back off: the failing partition is paused for 1 s, doubling with each
+consecutive failure of the same message up to 30 s, while the consumer's other
+partitions keep flowing (`retryBackoff`, or `false` to redeliver immediately).
+
 Override the policy with your own mapper — for example to route a failure to a
 dead-letter topic before committing:
 

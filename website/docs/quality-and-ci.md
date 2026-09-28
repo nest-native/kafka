@@ -98,10 +98,11 @@ broker cannot: a real produce → consume round-trip, a transactional commit via
 `KafkaProducerService.transactional`, per-topic concurrency with durable
 offset commits (a fresh consumer in the same group is not redelivered
 already-committed messages), redelivery of a batch whose handler failed
-with `'retry'`, and a graceful shutdown in the middle of a stream after which
+with `'retry'`, a graceful shutdown in the middle of a stream after which
 the next member of the group receives every record the first one did not
-process — the in-memory broker has no commit log and never redelivers, so only
-a real broker can show either. Every topic and group name is unique per run.
+process, and a retry backoff whose delay grows while a sibling partition keeps
+flowing on the same worker — the in-memory broker has no commit log, never
+redelivers and never pauses, so only a real broker can show any of it. Every topic and group name is unique per run.
 
 The suite is **gated on `KAFKA_BROKERS`**: it is skipped when the variable is
 unset, so it never runs during `npm run test:cov` and the 100% coverage gate is

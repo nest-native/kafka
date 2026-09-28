@@ -8,6 +8,24 @@ package release is useful for users.
 
 ## Unreleased
 
+### Added
+
+- **Retries back off.** A message — or a batch — whose failure maps to
+  `'retry'` used to come straight back: Confluent's client redelivers it by
+  seeking back, a flat ~0.5 s apart on a real broker, forever, so an outage
+  meant two calls a second per stuck partition against whatever was failing.
+  The transport now pauses only the failing partition for a delay — 1 s,
+  doubling with each consecutive failure of the same message, up to 30 s — and
+  resumes it when the delay is up, while the consumer's other partitions keep
+  flowing. **This changes the default**; configure it with `retryBackoff`
+  (`KafkaRetryBackoffOptions`), or pass `false` for the old immediate
+  redelivery. The backoff never gives up on a message — that stays the error
+  mapper's decision. `KafkaDriverConsumer` gains an optional `resume` next to
+  `pause`; a custom driver without them keeps immediate redelivery. Two
+  real-broker cases prove the growing delay (the old flat cadence fails them)
+  and that a partition backing off neither stalls its siblings on a single
+  worker nor has its record committed when the application shuts down.
+
 ### Changed
 
 - **Both ends of the NestJS peer range are now CI legs.** The single

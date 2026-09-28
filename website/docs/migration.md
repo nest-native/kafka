@@ -159,8 +159,9 @@ These are the parts that are *not* a rename.
 - **Backpressure.** `maxInFlight` caps in-flight work; default uncapped.
 - **Request-reply error timing.** The official transport error-replies on *every*
   handler failure. Here a `'retry'`-mapped error (the default for non-4xx) is
-  redelivered server-side first, so an un-migrated caller's fast failure becomes
-  a timeout unless a retry succeeds in the window. One `errorMapper` line
+  redelivered server-side first — after a backoff that starts at 1 s — so an
+  un-migrated caller's fast failure becomes a timeout unless a retry succeeds in
+  the window. One `errorMapper` line
   returning `'commit'` for those topics restores the old behaviour. See
   [Request-Reply](request-reply.md).
 

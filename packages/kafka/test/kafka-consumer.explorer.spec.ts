@@ -14,6 +14,7 @@ import {
   NestInterceptor,
   PipeTransform,
   Scope,
+  Type,
   UnauthorizedException,
   UseFilters,
   UseGuards,
@@ -29,14 +30,17 @@ import {
   KafkaDriverConsumer,
   KafkaDriverFactory,
   KafkaDriverProducer,
+  KafkaEachBatchHandler,
   KafkaEachMessageHandler,
   KafkaEachMessagePayload,
   KafkaSubscription,
+  KafkaTopicPartitions,
 } from '../driver';
 import { KafkaConsumer } from '../kafka-consumer.decorator';
 import { KafkaHandler } from '../kafka-handler.decorator';
 import { KafkaContext } from '../kafka-context';
 import { KafkaModule } from '../kafka.module';
+import { KafkaModuleOptions } from '../interfaces';
 
 /** Silence Nest's bootstrap logging during the tests. */
 Logger.overrideLogger(false);
@@ -46,8 +50,11 @@ interface RecordedConsumer {
   consumer: KafkaDriverConsumer;
   subscriptions: KafkaSubscription[];
   eachMessage?: KafkaEachMessageHandler;
+  eachBatch?: KafkaEachBatchHandler;
   connected: number;
   disconnected: number;
+  /** `pause topic[partitions]` / `resume …`, for a `pausable` driver. */
+  pauses: string[];
 }
 
 interface ControllableDriver {
@@ -72,8 +79,12 @@ function noopProducer(): KafkaDriverProducer {
   };
 }
 
-function createControllableDriver(): ControllableDriver {
+function createControllableDriver({ pausable = false } = {}): ControllableDriver {
   const consumers: RecordedConsumer[] = [];
+  const describePartitions = (topics: KafkaTopicPartitions[]): string =>
+    topics
+      .map(({ topic, partitions }) => `${topic}[${partitions ?? '*'}]`)
+      .join(',');
 
   const driver: KafkaClientDriver = {
     createProducer: noopProducer,
@@ -83,6 +94,7 @@ function createControllableDriver(): ControllableDriver {
         subscriptions: [],
         connected: 0,
         disconnected: 0,
+        pauses: [],
         consumer: undefined as unknown as KafkaDriverConsumer,
       };
       record.consumer = {
@@ -97,8 +109,17 @@ function createControllableDriver(): ControllableDriver {
         },
         run: async runConfig => {
           record.eachMessage = runConfig.eachMessage;
+          record.eachBatch = runConfig.eachBatch;
         },
       };
+      if (pausable) {
+        record.consumer.pause = topics => {
+          record.pauses.push(`pause ${describePartitions(topics)}`);
+        };
+        record.consumer.resume = topics => {
+          record.pauses.push(`resume ${describePartitions(topics)}`);
+        };
+      }
       consumers.push(record);
       return record.consumer;
     },
@@ -886,5 +907,142 @@ describe('Kafka consumer transport', () => {
     ]);
 
     await app.close();
+  });
+});
+
+/** Poll a condition across event-loop turns until it holds (or time runs out). */
+async function eventually(predicate: () => boolean, timeoutMs = 2_000): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
+  while (!predicate()) {
+    if (Date.now() > deadline) {
+      throw new Error('condition never held');
+    }
+    await new Promise(resolve => setTimeout(resolve, 5));
+  }
+}
+
+describe('Kafka retry backoff', () => {
+  @KafkaConsumer('flaky')
+  class FlakyConsumer {
+    static failures = 0;
+
+    @KafkaHandler()
+    handle(payload: { fail: boolean }): void {
+      if (payload.fail) {
+        FlakyConsumer.failures += 1;
+        throw new Error('downstream unavailable');
+      }
+    }
+  }
+
+  async function start(
+    driver: ControllableDriver,
+    retryBackoff: KafkaModuleOptions['retryBackoff'],
+    consumers: Type[] = [FlakyConsumer],
+  ) {
+    const moduleRef = await Test.createTestingModule({
+      imports: [
+        KafkaModule.forRoot({ driverFactory: driver.factory, retryBackoff }),
+        KafkaModule.forFeature(consumers),
+      ],
+    }).compile();
+    return moduleRef.init();
+  }
+
+  it('pauses the partition of a retried record, then resumes it after the delay', async () => {
+    const driver = createControllableDriver({ pausable: true });
+    const app = await start(driver, { initialDelayMs: 20, maxDelayMs: 20 });
+    const [record] = driver.consumers;
+
+    await assert.rejects(
+      record.eachMessage?.(messagePayload('flaky', { fail: true }, 2)) ??
+        Promise.resolve(),
+      /downstream unavailable/,
+    );
+    // Paused before the rejection reached the client, so its seek-back lands
+    // on a partition that stays quiet for the delay.
+    assert.deepEqual(record.pauses, ['pause flaky[2]']);
+    await eventually(() => record.pauses.length === 2);
+    assert.deepEqual(record.pauses, ['pause flaky[2]', 'resume flaky[2]']);
+
+    // A success on the partition ends its streak; nothing else is paused.
+    await record.eachMessage?.(messagePayload('flaky', { fail: false }, 2));
+    assert.deepEqual(record.pauses, ['pause flaky[2]', 'resume flaky[2]']);
+
+    await app.close();
+  });
+
+  it('redelivers immediately when retryBackoff is false', async () => {
+    const driver = createControllableDriver({ pausable: true });
+    const app = await start(driver, false);
+    const [record] = driver.consumers;
+
+    await assert.rejects(
+      record.eachMessage?.(messagePayload('flaky', { fail: true })) ??
+        Promise.resolve(),
+      /downstream unavailable/,
+    );
+    assert.deepEqual(record.pauses, [], 'no backoff pause');
+
+    await app.close();
+    // Only the shutdown pause, which covers every assigned partition.
+    assert.deepEqual(record.pauses, ['pause flaky[*]']);
+  });
+
+  it('backs off a failed batch on its partition', async () => {
+    const driver = createControllableDriver({ pausable: true });
+
+    @KafkaConsumer('metrics')
+    class FailingBatchConsumer {
+      @KafkaHandler(undefined, { batch: true })
+      handle(): void {
+        throw new Error('warehouse unavailable');
+      }
+    }
+
+    const app = await start(
+      driver,
+      { initialDelayMs: 60_000, maxDelayMs: 60_000 },
+      [FailingBatchConsumer],
+    );
+    const [record] = driver.consumers;
+
+    for (const messages of [
+      [{ value: '1', offset: '12' }],
+      [], // a driver may hand over an empty batch; it still has a partition
+    ]) {
+      await assert.rejects(
+        record.eachBatch?.({
+          batch: { topic: 'metrics', partition: 4, messages },
+          resolveOffset: () => {},
+        }) ?? Promise.resolve(),
+        /warehouse unavailable/,
+      );
+    }
+    assert.deepEqual(record.pauses, ['pause metrics[4]', 'pause metrics[4]']);
+
+    await app.close();
+  });
+
+  it('cancels a pending resume when the application shuts down', async () => {
+    const driver = createControllableDriver({ pausable: true });
+    const app = await start(driver, { initialDelayMs: 60_000, maxDelayMs: 60_000 });
+    const [record] = driver.consumers;
+
+    await assert.rejects(
+      record.eachMessage?.(messagePayload('flaky', { fail: true })) ??
+        Promise.resolve(),
+    );
+    await app.close();
+    await new Promise(resolve => setTimeout(resolve, 30));
+
+    // Paused for the backoff, paused again for shutdown — never resumed after
+    // the consumer disconnected.
+    assert.deepEqual(record.pauses, ['pause flaky[0]', 'pause flaky[*]']);
+  });
+
+  it('refuses an invalid retryBackoff at bootstrap', async () => {
+    const driver = createControllableDriver({ pausable: true });
+    await assert.rejects(start(driver, { multiplier: 0.5 }), /Invalid retryBackoff/);
   });
 });
