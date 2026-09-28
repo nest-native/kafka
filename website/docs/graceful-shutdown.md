@@ -3,12 +3,22 @@
 On `app.close()` the transport shuts down in a defined order so no handler is
 interrupted mid-message and no in-flight work is lost:
 
-1. **Stop accepting new claims.** Consumers stop taking newly delivered messages.
+1. **Stop accepting new claims.** Every consumer is paused, so the client stops
+   handing it records; records it had already fetched go back to the client
+   instead of to a handler. Should one still arrive, it is handed back too — never
+   acknowledged, because acknowledging a record is what gets it committed.
 2. **Drain in-flight.** The messages — and batches — already being processed run
    to completion.
 3. **Disconnect.** Every consumer, and the producer, disconnect from the broker.
+   Only records a handler finished are committed; everything else is delivered
+   to the partition's next owner.
 
-This ordering is part of the project's constitution and is covered by tests.
+This ordering is part of the project's constitution and is covered by tests,
+including a real-broker case that shuts down mid-stream and requires the next
+member of the group to receive every record the first one did not process.
+Versions up to 0.5.1 acknowledged the records that arrived during the drain
+instead of handing them back, so a record could be committed unprocessed on a
+redeploy.
 
 ## Enabling Shutdown Hooks
 

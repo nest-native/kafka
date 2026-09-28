@@ -265,6 +265,16 @@ export interface KafkaConsumerRunConfig {
 }
 
 /**
+ * Topic partitions to pause, mirroring the KafkaJS-compatible
+ * `TopicPartitions` shape. Omitting `partitions` means every partition of the
+ * topic currently assigned to the consumer.
+ */
+export interface KafkaTopicPartitions {
+  topic: string;
+  partitions?: number[];
+}
+
+/**
  * The minimal consumer surface the package depends on. This is the subset of the
  * Confluent `Consumer` type the transport uses to subscribe to topics and
  * dispatch messages through the Nest enhancer pipeline.
@@ -274,6 +284,20 @@ export interface KafkaDriverConsumer {
   disconnect(): Promise<void>;
   subscribe(subscription: KafkaSubscription): Promise<void>;
   run(config: KafkaConsumerRunConfig): Promise<void>;
+
+  /**
+   * Stop handing the given topic partitions to `eachMessage` / `eachBatch`.
+   * Confluent's client applies it between fetches and returns records it has
+   * already fetched for those partitions to its cache rather than dispatching
+   * them.
+   *
+   * The transport calls it when graceful shutdown begins, so a consumer that is
+   * about to leave its group is not handed more records. It is optional: a
+   * driver without it loses nothing either, because the transport rejects any
+   * record delivered after shutdown began — the client then seeks back instead
+   * of committing it — only more noisily, since the client logs each rejection.
+   */
+  pause?(topics: KafkaTopicPartitions[]): void;
 }
 
 /**

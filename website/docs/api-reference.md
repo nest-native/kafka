@@ -89,7 +89,8 @@ Opt-in, and inert until `requestReply` is configured. See
 | `createConfluentDriver` | const | The default driver factory; lazily loads the Confluent client. |
 | `KafkaClientDriver` | interface | The driver contract. |
 | `KafkaDriverProducer` | interface | The producer the driver exposes. |
-| `KafkaDriverConsumer` | interface | The consumer the driver exposes. |
+| `KafkaDriverConsumer` | interface | The consumer the driver exposes. An optional `pause` lets graceful shutdown stop deliveries before draining; a custom driver without it loses nothing, since late records are handed back. |
+| `KafkaTopicPartitions` | interface | A topic and, optionally, the partitions to pause. |
 | `KafkaDriverFactory` | type | `driverFactory` option shape. |
 
 The driver is an advanced seam. Most applications never touch it directly.

@@ -31,6 +31,20 @@ package release is useful for users.
 
 ### Fixed
 
+- **Graceful shutdown no longer commits records it did not process.** Once the
+  drain began, a record the client still delivered was ignored — and returning
+  from `eachMessage` without an error is how Confluent's client learns a record
+  is processed, so it stored the offset and committed it on disconnect: a
+  record fetched during the drain was lost on every redeploy under load (the
+  new real-broker case lost one of eight on the old code). Shutdown now pauses
+  every consumer before draining, so the client stops handing records over, and
+  any record that still arrives is rejected, so the client seeks back instead of
+  committing it. The pause is optional on the driver surface
+  (`KafkaDriverConsumer.pause`); without it the rejection alone keeps every
+  record, at the cost of one client error log line per late record. A record
+  for a topic no handler routes is now acknowledged in batch mode as it already
+  was per message — the dispatcher's comment claimed its offset stayed
+  uncommitted, which was never true.
 - **A batch that fails with `'retry'` is redelivered instead of committed.**
   The dispatcher resolved every offset of a batch while decoding it, before the
   handler ran. Confluent's client stores a resolved offset for commit at once
