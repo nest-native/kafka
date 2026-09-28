@@ -32,7 +32,8 @@ Related docs: [Consumers](../consumers.md).
 ## `03-headers-context-errors`
 
 The `@KafkaMessage` / `@KafkaHeaders` / `@KafkaCtx` parameter decorators, error
-mapping, and graceful shutdown.
+mapping, dead letters written by an exception filter with `toDeadLetterMessage`
+and read back with `readDeadLetterHeaders`, and graceful shutdown.
 
 Related docs: [Parameter Decorators](../parameter-decorators.md),
 [Error Mapping](../error-mapping.md), [Graceful Shutdown](../graceful-shutdown.md).

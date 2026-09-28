@@ -15,7 +15,8 @@ Current samples:
 - `02-consumer-enhancers` — `@KafkaConsumer` / `@KafkaHandler` with guards,
   interceptors, pipes, and filters.
 - `03-headers-context-errors` — the `@KafkaMessage` / `@KafkaHeaders` /
-  `@KafkaCtx` parameter decorators, error mapping, and graceful shutdown.
+  `@KafkaCtx` parameter decorators, error mapping, dead letters through an
+  exception filter, and graceful shutdown.
 - `04-batch-concurrency` — batch consumption (`@KafkaHandler({ batch: true })`,
   `@KafkaBatch()`), per-topic concurrency (`nestjs/nest#12703`), and batch
   offsets resolved only once the batch is handled.

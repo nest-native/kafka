@@ -84,26 +84,83 @@ option does not accept.
 
 ## Dead-Letter Queues Are A Pattern, Not A Framework
 
-The package provides the primitives, not a DLQ framework. Implement the pattern in
-a filter or a custom mapper: produce the failed message to a dead-letter topic,
-then commit so it is not redelivered:
+The package provides the primitives, not a DLQ framework: it builds and reads
+dead-letter records, and your application decides which failures go where.
+
+`toDeadLetterMessage(context, error)` turns a failed message into its dead
+letter: the original key, value, and headers, plus the headers Spring Kafka's
+`DeadLetterPublishingRecoverer` writes — `kafka_dlt-original-topic`,
+`-original-partition`, `-original-offset`, `-original-timestamp`,
+`-original-consumer-group`, `kafka_dlt-exception-fqcn`, `-exception-message`, and
+`-exception-stacktrace`. The names and the encodings are Spring's (the
+partition is a 4-byte integer, the offset and timestamp 8-byte integers, the
+rest UTF-8), so a dead-letter topic written here reads the same as one written
+by a JVM service, and Spring tooling can read ours. `readDeadLetterHeaders`
+decodes them back; `toDeadLetterMessages` does the same for every message of a
+failed batch.
+
+The Nest-native place to produce the dead letter is an exception filter — it is
+DI-enabled, so it can inject `KafkaProducerService`:
 
 ```ts
-KafkaModule.forRoot({
-  client: {brokers: ['localhost:9092']},
-  errorMapper: async (error, context): Promise<KafkaErrorBehavior> => {
-    await deadLetterProducer.send({
+@Injectable()
+@Catch(BadRequestException)
+export class DeadLetterFilter implements ExceptionFilter {
+  constructor(private readonly producer: KafkaProducerService) {}
+
+  async catch(error: BadRequestException, host: ArgumentsHost): Promise<void> {
+    const context = host.switchToRpc().getContext<KafkaContext>();
+    await this.producer.send({
       topic: `${context.getTopic()}.dlq`,
-      messages: [{value: JSON.stringify({error: String(error)})}],
+      messages: [toDeadLetterMessage(context, error, {consumerGroup: 'billing'})],
     });
-    return 'commit'; // only once the dead letter is written
-  },
-});
+  }
+}
+
+@KafkaConsumer('orders', {groupId: 'billing'})
+export class OrdersConsumer {
+  @UseFilters(DeadLetterFilter)
+  @KafkaHandler()
+  handle(@KafkaMessage() order: Order): void {
+    // throw new BadRequestException(...) for an order that can never succeed
+  }
+}
 ```
 
+The filter handles the error, so the message is committed — but only after the
+`send` it awaits: the transport awaits a filter, and one that rejects (the
+dead-letter topic is unavailable) leaves the message to be retried instead of
+losing it. Catch only the errors a retry cannot fix — here, the same 4xx class
+the default mapper would otherwise commit silently — and let transient ones
+through to the mapper and its [backoff](#retries-back-off).
+
+An async error mapper works the same way when a producer is in reach — it is
+awaited, and a rejection retries — but a mapper is module configuration, not a
+provider, so it cannot inject one; `deadLetters` below is a producer you
+created yourself:
+
+```ts
+errorMapper: async (error, context): Promise<KafkaErrorBehavior> => {
+  if (defaultKafkaErrorMapper(error, context) === 'retry') return 'retry';
+  await deadLetters.send({
+    topic: `${context.getTopic()}.dlq`,
+    messages:
+      context instanceof KafkaBatchContext
+        ? toDeadLetterMessages(context, error)
+        : [toDeadLetterMessage(context, error)],
+  });
+  return 'commit'; // only once the dead letter is written
+},
+```
+
+A stack trace names files and code paths; pass `{includeStackTrace: false}`
+when the dead-letter topic is readable outside the team that owns the code.
+
 Versions up to 0.5.1 compared the mapper's result without awaiting it, so an
-async mapper — this very example — committed every message it saw, before its
-produce finished and even when the produce failed.
+async mapper committed every message it saw, before its produce finished and
+even when the produce failed. They also shipped no dead-letter record builder,
+and the example here forwarded only `String(error)` — the original message was
+lost.
 
 Sample `03-headers-context-errors` isolates the error-mapping behavior end to end.
 See the [Sample Catalog](samples/catalog.md).

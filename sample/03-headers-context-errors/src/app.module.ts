@@ -2,7 +2,12 @@ import { Module } from '@nestjs/common';
 import { KafkaModule } from '@nest-native/kafka';
 import { InMemoryBroker } from './in-memory-broker';
 import { resolveBrokers, resolveDriverFactory } from './kafka-driver';
-import { PaymentsConsumer, PaymentsInbox } from './payments.consumer';
+import { DeadLetterFilter } from './dead-letter.filter';
+import {
+  PaymentsConsumer,
+  PaymentsDeadLetters,
+  PaymentsInbox,
+} from './payments.consumer';
 import { PaymentsService } from './payments.service';
 
 /**
@@ -18,11 +23,17 @@ const broker = new InMemoryBroker();
       client: { brokers: resolveBrokers() },
       driverFactory: resolveDriverFactory(broker),
       // The default error mapper commits 4xx client errors and retries
-      // everything else. Supply your own here to, for example, route a failure
-      // to a dead-letter topic before committing.
+      // everything else. The payments handler dead-letters its 4xx failures
+      // through DeadLetterFilter before they are committed.
     }),
   ],
-  providers: [PaymentsConsumer, PaymentsService, PaymentsInbox],
+  providers: [
+    PaymentsConsumer,
+    PaymentsDeadLetters,
+    DeadLetterFilter,
+    PaymentsService,
+    PaymentsInbox,
+  ],
   exports: [PaymentsService, PaymentsInbox],
 })
 export class AppModule {}

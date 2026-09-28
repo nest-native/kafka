@@ -60,6 +60,12 @@ See [Producer](producer.md) and [Transactions](transactions.md).
 | `KafkaErrorContext` | type | `KafkaContext \| KafkaBatchContext`. |
 | `KafkaRetryBackoffOptions` | interface | `initialDelayMs`, `maxDelayMs`, `multiplier` for the `retryBackoff` module option. |
 | `DEFAULT_KAFKA_RETRY_BACKOFF` | const | `{ initialDelayMs: 1000, maxDelayMs: 30000, multiplier: 2 }`. |
+| `toDeadLetterMessage` | function | `(context, error, options?)` → the dead-letter record: original key, value, headers, plus Spring's `kafka_dlt-*` headers. |
+| `toDeadLetterMessages` | function | The same for every message of a failed batch (`KafkaBatchContext`). |
+| `readDeadLetterHeaders` | function | Decodes the `kafka_dlt-*` headers of a consumed record; `undefined` when it is not a dead letter. |
+| `KAFKA_DEAD_LETTER_HEADERS` | const | The header names, Spring Kafka's. |
+| `KafkaDeadLetterOptions` | interface | `consumerGroup`, `includeStackTrace` (default `true`). |
+| `KafkaDeadLetterInfo` | interface | What `readDeadLetterHeaders` returns. |
 
 See [Error Mapping](error-mapping.md).
 

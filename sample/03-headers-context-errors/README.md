@@ -11,10 +11,14 @@ What it shows:
 - `@KafkaCtx()` — the raw `KafkaContext` (topic, partition, original message,
   headers), mirroring `@Ctx()`.
 - Error mapping: a handler throwing a 4xx `BadRequestException` is committed by
-  the default mapper, so a poison message is acknowledged instead of redelivered
-  forever. A transient error (a plain `Error` or a 5xx) is retried — supply your
-  own mapper through `KafkaModule.forRoot({ errorMapper })` to override, for
-  example to route a failure to a dead-letter topic before committing.
+  the default mapper, so a poison message is not redelivered forever. A
+  transient error (a plain `Error` or a 5xx) is retried, with a backoff.
+- Dead letters: `DeadLetterFilter` (`@UseFilters` on the handler) writes the
+  rejected payment to `payments.captured.dlq` with `toDeadLetterMessage` — the
+  original key, value, and headers plus Spring Kafka's `kafka_dlt-*` headers —
+  before it is committed, so the poison message is kept rather than dropped. A
+  second consumer reads the dead-letter topic back with `readDeadLetterHeaders`,
+  and the smoke test asserts what it decoded.
 - Graceful shutdown: `app.close()` stops accepting new claims, drains in-flight
   handlers, then disconnects.
 
