@@ -24,7 +24,7 @@ unless an application opens a real connection. It must be installed for real
 (non-test) usage; the in-memory `KafkaTestModule` and `createMockKafkaProducer`
 exercise the whole transport without it. The real-broker integration suite
 (`packages/kafka/test/kafka.integration.spec.ts`) is gated on `KAFKA_BROKERS` and
-runs in its own CI job against a single-node KRaft Kafka; it is skipped locally
+runs in its own CI job against a single-node KRaft Kafka, on both a 3.x and a 4.x broker; it is skipped locally
 unless `KAFKA_BROKERS` is set, so it never affects the 100% coverage gate. Run it
 explicitly with `npm run test:integration` (which is separate from `npm run ci`).
 

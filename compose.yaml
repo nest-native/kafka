@@ -7,7 +7,10 @@
 #   npm run infra:down   remove containers and volumes
 services:
   kafka:
-    image: apache/kafka:3.8.1
+    # CI runs the integration suite against both ends of the tested broker
+    # range; pick the other end locally with
+    # `KAFKA_IMAGE=apache/kafka:4.3.1 npm run infra:up`.
+    image: ${KAFKA_IMAGE:-apache/kafka:3.8.1}
     container_name: nest-kafka-broker
     environment:
       KAFKA_NODE_ID: 1
