@@ -36,13 +36,22 @@ async function smoke(): Promise<void> {
   assert.equal(inbox.handled[0].topic, 'payments.captured');
   assert.equal(inbox.handled[0].partition, 0);
 
-  // 2. A negative amount throws a BadRequestException (4xx). The default error
-  // mapper commits it, so the produce call resolves and the poison message is
-  // never redelivered — it simply does not reach the inbox.
+  // 2. A negative amount throws a BadRequestException (4xx). DeadLetterFilter
+  // writes it to the dead-letter topic, and only then is it committed: the
+  // produce call resolves, it never reaches the inbox, and it is not lost.
   await assert.doesNotReject(
     payments.capture({ id: 'pay-2', amount: -1 }, 'globex'),
   );
   assert.equal(inbox.handled.length, 1, 'the 4xx payment must be committed');
+
+  assert.equal(inbox.deadLetters.length, 1, 'the 4xx payment is dead-lettered');
+  const [deadLetter] = inbox.deadLetters;
+  assert.deepEqual(deadLetter.payment, { id: 'pay-2', amount: -1 });
+  assert.equal(String(deadLetter.tenant), 'globex', 'original headers survive');
+  assert.equal(deadLetter.info?.originalTopic, 'payments.captured');
+  assert.equal(deadLetter.info?.originalConsumerGroup, 'payments-sample');
+  assert.equal(deadLetter.info?.exceptionFqcn, 'BadRequestException');
+  assert.equal(deadLetter.info?.exceptionMessage, 'negative amount for pay-2');
 
   // 3. Graceful shutdown drains in-flight handlers, then disconnects.
   await app.close();

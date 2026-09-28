@@ -4,7 +4,17 @@ import { randomUUID } from 'node:crypto';
 import { setTimeout as delay } from 'node:timers/promises';
 import { after, before, describe, it } from 'node:test';
 import { promisify } from 'node:util';
-import { Controller, INestMicroservice, Injectable, Module } from '@nestjs/common';
+import {
+  ArgumentsHost,
+  BadRequestException,
+  Catch,
+  Controller,
+  ExceptionFilter,
+  INestMicroservice,
+  Injectable,
+  Module,
+  UseFilters,
+} from '@nestjs/common';
 import {
   ClientKafka,
   Ctx as NestCtx,
@@ -22,6 +32,7 @@ import { KafkaConsumer } from '../kafka-consumer.decorator';
 import { KafkaHandler } from '../kafka-handler.decorator';
 import { KafkaCtx, KafkaMessage } from '../kafka-params.decorators';
 import { KafkaContext } from '../kafka-context';
+import { readDeadLetterHeaders, toDeadLetterMessage } from '../kafka-dead-letter';
 import { KafkaModule } from '../kafka.module';
 import { KafkaProducerService } from '../kafka-producer.service';
 import {
@@ -52,7 +63,8 @@ import { KafkaRequestReplyService } from '../kafka-request-reply.service';
  * redeliver already-committed messages), redelivery of a batch whose handler
  * failed with `'retry'`, a mid-stream graceful shutdown that commits nothing it
  * did not process, a retry backoff whose delay grows and that pauses only the
- * failing partition, and recovery across a broker restart.
+ * failing partition, a dead-letter record whose Spring headers survive the
+ * round trip, and recovery across a broker restart.
  * The second covers request-reply (ADR 0001) — see its own header below. Every
  * topic and group name is unique per run, so repeated CI runs against the same
  * broker never collide.
@@ -873,6 +885,129 @@ describe('Kafka real-broker integration', { skip }, () => {
       await waitFor(() => sink.seen(stuck), { timeoutMs: 45_000 });
     } finally {
       await secondApp.close();
+    }
+  });
+
+  it('dead-letters a poison message with the Spring headers through a filter', async () => {
+    const topic = unique('it.dlq-source');
+    const deadLetterTopic = `${topic}.dlq`;
+    const groupId = unique('it-dlq-group');
+    await createTopic(topic, 1);
+    await createTopic(deadLetterTopic, 1);
+    const poison = `poison-${randomUUID()}`;
+
+    interface DeadLetter {
+      value: string;
+      key?: string;
+      headers: KafkaMessageHeaders;
+    }
+
+    @Injectable()
+    class DeadLetterSink {
+      readonly received: DeadLetter[] = [];
+      poisonOffset?: string;
+    }
+
+    @Injectable()
+    @Catch(BadRequestException)
+    class DeadLetterFilter implements ExceptionFilter {
+      constructor(private readonly producer: KafkaProducerService) {}
+
+      // Awaited by the transport: the record commits only once this resolved.
+      async catch(error: BadRequestException, host: ArgumentsHost): Promise<void> {
+        const context = host.switchToRpc().getContext<KafkaContext>();
+        await this.producer.send({
+          topic: deadLetterTopic,
+          messages: [toDeadLetterMessage(context, error, { consumerGroup: groupId })],
+        });
+      }
+    }
+
+    @Injectable()
+    @KafkaConsumer(topic, { groupId })
+    class OrdersConsumer {
+      constructor(
+        private readonly sink: MessageSink,
+        private readonly deadLetters: DeadLetterSink,
+      ) {}
+
+      @UseFilters(DeadLetterFilter)
+      @KafkaHandler()
+      handle(@KafkaMessage() value: string, @KafkaCtx() context: KafkaContext) {
+        if (value === poison) {
+          this.deadLetters.poisonOffset = context.getMessage().offset;
+          throw new BadRequestException('unparseable order');
+        }
+        this.sink.record(value, context);
+      }
+    }
+
+    @Injectable()
+    @KafkaConsumer(deadLetterTopic, { groupId: `${groupId}-dlq` })
+    class DeadLetterConsumer {
+      constructor(private readonly deadLetters: DeadLetterSink) {}
+
+      @KafkaHandler()
+      handle(@KafkaCtx() context: KafkaContext) {
+        const message = context.getMessage();
+        this.deadLetters.received.push({
+          value: String(message.value),
+          key: message.key === null || message.key === undefined ? undefined : String(message.key),
+          headers: context.getHeaders(),
+        });
+      }
+    }
+
+    @Module({
+      imports: [
+        KafkaModule.forRoot({ clientId, client: { brokers }, driverFactory }),
+      ],
+      providers: [
+        MessageSink,
+        DeadLetterSink,
+        DeadLetterFilter,
+        OrdersConsumer,
+        DeadLetterConsumer,
+      ],
+    })
+    class DeadLetterModule {}
+
+    const app = await Test.createTestingModule({
+      imports: [DeadLetterModule],
+    }).compile();
+    await app.init();
+
+    try {
+      const producer = app.get(KafkaProducerService);
+      const deadLetters = app.get(DeadLetterSink);
+      await warmUp(producer, app.get(MessageSink), topic);
+      await warmUpUntil(producer, deadLetterTopic, probe =>
+        deadLetters.received.some(letter => letter.value === probe),
+      );
+
+      await producer.send({
+        topic,
+        messages: [{ key: 'order-7', value: poison, headers: { 'trace-id': 'abc' } }],
+      });
+      await waitFor(() => deadLetters.received.some(letter => letter.value === poison));
+
+      const letter = deadLetters.received.find(entry => entry.value === poison);
+      assert.equal(letter?.key, 'order-7', 'the key survives');
+      assert.equal(String(letter?.headers['trace-id']), 'abc', 'original headers survive');
+
+      // Decoded from the bytes the broker delivered: the binary int32/int64
+      // encodings made the round trip.
+      const info = readDeadLetterHeaders(letter?.headers);
+      assert.equal(info?.originalTopic, topic);
+      assert.equal(info?.originalPartition, 0);
+      assert.equal(info?.originalOffset, deadLetters.poisonOffset);
+      assert.match(info?.originalTimestamp ?? '', /^\d{13}$/);
+      assert.equal(info?.originalConsumerGroup, groupId);
+      assert.equal(info?.exceptionFqcn, 'BadRequestException');
+      assert.equal(info?.exceptionMessage, 'unparseable order');
+      assert.match(info?.exceptionStacktrace ?? '', /BadRequestException: unparseable order/);
+    } finally {
+      await app.close();
     }
   });
 

@@ -238,7 +238,8 @@ packages, using `node:test` and `c8`:
 - a real-broker integration job that runs a produce → consume round-trip, a
   transactional commit, per-topic concurrency, batch redelivery after a
   `'retry'`, a mid-stream graceful shutdown that loses nothing, a retry
-  backoff that pauses only the failing partition, and a **broker restart** against
+  backoff that pauses only the failing partition, a dead-letter round trip,
+  and a **broker restart** against
   a single-node KRaft Kafka, once on 3.x and once on 4.x (skipped locally unless `KAFKA_BROKERS` is set;
   the restart case additionally needs `KAFKA_RESTART_CONTAINER`)
 

@@ -357,6 +357,19 @@ timers are cancelled when shutdown begins, because a resume after disconnect
 throws. Streaks are per consumer and in memory, so a rebalance or a restart
 starts a record over at the initial delay; the docs say so.
 
+**Dead letters use Spring Kafka's header contract, and stay primitives.**
+`toDeadLetterMessage` writes the `kafka_dlt-*` headers with Spring's names and
+encodings (an int32 partition, int64 offset and timestamp, UTF-8 text) rather
+than a shape of this package's own. A dead-letter topic is read by whoever runs
+the platform, often with JVM tooling, and a second convention would cost
+readers without buying anything. The decoder prefers text when a value is all
+digits: a real binary value starts with a zero byte, and a decimal header can be
+exactly four or eight characters long. The package builds and reads records; it
+does not choose the topic, decide which failures qualify, or produce on its own
+(§3: primitives, not a framework). The documented place to produce is an
+exception filter — DI-enabled and awaited before the commit — because the error
+mapper is module configuration and cannot inject a producer.
+
 **NestJS majors are adopted by widening the peer range, and the `@nestjs/*`
 devDependencies stay on the older major.** NestJS 12 (2026-08) was added as
 `^11.0.0 || ^12.0.0` on `@nestjs/common`, `@nestjs/core`, and

@@ -23,8 +23,9 @@ Resisting scope creep into a "Kafka platform" is a stated goal:
 - Confluent Schema Registry integration — a possible follow-on package
   (`nest-confluent-schema-registry`).
 - Exactly-once helpers beyond what the Confluent client provides.
-- A dead-letter-queue "framework" — the package provides primitives and documents
-  the pattern. See [Error Mapping](error-mapping.md).
+- A dead-letter-queue "framework" — the package provides the primitives
+  (`toDeadLetterMessage`, `readDeadLetterHeaders`, on Spring Kafka's header
+  contract) and documents the pattern. See [Error Mapping](error-mapping.md).
 - AsyncAPI generation — belongs in `@nest-native/asyncapi`.
 - Kafka Streams, ksqlDB, and Kafka Connect.
 

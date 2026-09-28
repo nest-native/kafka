@@ -10,6 +10,19 @@ package release is useful for users.
 
 ### Added
 
+- **Dead-letter records.** `toDeadLetterMessage(context, error)` builds the dead
+  letter for a failed message: its original key, value, and headers, plus
+  Spring Kafka's `kafka_dlt-*` headers (original topic, partition, offset,
+  timestamp, and consumer group; the exception's class, message, and stack
+  trace) in Spring's encodings, so a dead-letter topic reads the same whichever
+  side wrote it. `toDeadLetterMessages` does the same for a failed batch, and
+  `readDeadLetterHeaders` decodes the headers back. They are primitives: the
+  application still picks the topic and which failures qualify. The documented
+  pattern is now an exception filter that injects `KafkaProducerService` — the
+  transport awaits it, so a message commits only once its dead letter is
+  written. The previous example forwarded only `String(error)`, losing the
+  original message. Sample 03 dead-letters its poison payment this way, and a
+  real-broker case proves the headers survive the round trip.
 - **Retries back off.** A message — or a batch — whose failure maps to
   `'retry'` used to come straight back: Confluent's client redelivers it by
   seeking back, a flat ~0.5 s apart on a real broker, forever, so an outage

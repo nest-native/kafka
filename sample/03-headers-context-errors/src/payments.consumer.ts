@@ -1,12 +1,15 @@
-import { BadRequestException, Injectable, Logger } from '@nestjs/common';
+import { BadRequestException, Injectable, Logger, UseFilters } from '@nestjs/common';
 import {
   KafkaConsumer,
   KafkaContext,
   KafkaCtx,
+  KafkaDeadLetterInfo,
   KafkaHandler,
   KafkaHeaders,
   KafkaMessage,
+  readDeadLetterHeaders,
 } from '@nest-native/kafka';
+import { DeadLetterFilter, PAYMENTS_DEAD_LETTER_TOPIC } from './dead-letter.filter';
 
 export interface PaymentEvent {
   id: string;
@@ -26,8 +29,16 @@ export class PaymentsInbox {
     partition: number;
   }[] = [];
 
+  /** Rejected payments, as they arrived on the dead-letter topic. */
+  readonly deadLetters: {
+    payment: PaymentEvent;
+    tenant: string | Buffer | undefined;
+    info: KafkaDeadLetterInfo | undefined;
+  }[] = [];
+
   reset(): void {
     this.handled.length = 0;
+    this.deadLetters.length = 0;
   }
 }
 
@@ -37,8 +48,9 @@ export const PAYMENTS_TOPIC = 'payments.captured';
  * A `@KafkaConsumer` showing the milestone-4 parameter decorators and error
  * mapping. The handler reads the payload, a single header by key, and the raw
  * transport context through separate decorated parameters, then rejects a
- * negative amount with a `BadRequestException` — a 4xx the default error mapper
- * commits (no infinite redelivery of a poison message).
+ * negative amount with a `BadRequestException`. The {@link DeadLetterFilter}
+ * writes that poison message to the dead-letter topic before it is committed,
+ * so it is neither redelivered forever nor lost.
  */
 @KafkaConsumer(PAYMENTS_TOPIC, { groupId: 'payments-sample' })
 export class PaymentsConsumer {
@@ -46,6 +58,7 @@ export class PaymentsConsumer {
 
   constructor(private readonly inbox: PaymentsInbox) {}
 
+  @UseFilters(DeadLetterFilter)
   @KafkaHandler()
   handle(
     @KafkaMessage() payment: PaymentEvent,
@@ -53,8 +66,8 @@ export class PaymentsConsumer {
     @KafkaCtx() context: KafkaContext,
   ): void {
     if (payment.amount < 0) {
-      // 4xx → the default mapper commits, so this poison message is acknowledged
-      // instead of being redelivered forever.
+      // Invalid, so it can never succeed: the filter dead-letters it, and the
+      // message is then committed instead of being redelivered forever.
       throw new BadRequestException(`negative amount for ${payment.id}`);
     }
 
@@ -69,5 +82,27 @@ export class PaymentsConsumer {
         tenant,
       )}"`,
     );
+  }
+}
+
+/**
+ * Reads the dead-letter topic back, decoding the `kafka_dlt-*` headers with
+ * `readDeadLetterHeaders` — what an operator's replay or alerting job would do.
+ */
+@KafkaConsumer(PAYMENTS_DEAD_LETTER_TOPIC, { groupId: 'payments-dead-letters' })
+export class PaymentsDeadLetters {
+  constructor(private readonly inbox: PaymentsInbox) {}
+
+  @KafkaHandler()
+  record(
+    @KafkaMessage() payment: PaymentEvent,
+    @KafkaHeaders('x-tenant') tenant: string | Buffer | undefined,
+    @KafkaCtx() context: KafkaContext,
+  ): void {
+    this.inbox.deadLetters.push({
+      payment,
+      tenant,
+      info: readDeadLetterHeaders(context.getHeaders()),
+    });
   }
 }
