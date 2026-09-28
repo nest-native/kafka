@@ -50,7 +50,8 @@ import { KafkaRequestReplyService } from '../kafka-request-reply.service';
  * {@link KafkaProducerService.transactional}, per-topic-concurrency plus
  * offset-commit durability (a fresh consumer in the same group does not
  * redeliver already-committed messages), redelivery of a batch whose handler
- * failed with `'retry'`, and recovery across a broker restart.
+ * failed with `'retry'`, a mid-stream graceful shutdown that commits nothing it
+ * did not process, and recovery across a broker restart.
  * The second covers request-reply (ADR 0001) — see its own header below. Every
  * topic and group name is unique per run, so repeated CI runs against the same
  * broker never collide.
@@ -628,6 +629,91 @@ describe('Kafka real-broker integration', { skip }, () => {
         0,
         'a batch that eventually succeeded must not be redelivered to a new consumer',
       );
+    } finally {
+      await secondApp.close();
+    }
+  });
+
+  it('never commits a record it did not process during graceful shutdown', async () => {
+    const topic = unique('it.drain');
+    const groupId = unique('it-drain-group');
+    await createTopic(topic, 1);
+
+    @Injectable()
+    @KafkaConsumer(topic, { groupId })
+    class SlowConsumer {
+      constructor(private readonly sink: MessageSink) {}
+
+      @KafkaHandler()
+      async handle(
+        @KafkaMessage() value: string,
+        @KafkaCtx() context: KafkaContext,
+      ) {
+        // Slow enough that the rest of the fetched records are still waiting
+        // in the client when the application starts shutting down.
+        await delay(300);
+        this.sink.record(value, context);
+      }
+    }
+
+    @Module({
+      imports: [
+        KafkaModule.forRoot({ clientId, client: { brokers }, driverFactory }),
+      ],
+      providers: [MessageSink, SlowConsumer],
+    })
+    class DrainModule {}
+
+    const marker = randomUUID();
+    const values = Array.from({ length: 10 }, (_, index) => `drain-${index}-${marker}`);
+
+    const firstApp = await Test.createTestingModule({
+      imports: [DrainModule],
+    }).compile();
+    await firstApp.init();
+
+    let processedByFirst: string[] = [];
+    try {
+      const sink = firstApp.get(MessageSink);
+      const producer = firstApp.get(KafkaProducerService);
+      await warmUp(producer, sink, topic);
+
+      await producer.send({
+        topic,
+        messages: values.map(value => ({ value })),
+      });
+      // Shut down while the first record is being handled and the rest of
+      // the batch is fetched but not yet dispatched.
+      await waitFor(() => values.some(value => sink.seen(value)), {
+        timeoutMs: 30_000,
+      });
+    } finally {
+      await firstApp.close();
+      processedByFirst = values.filter(value =>
+        firstApp.get(MessageSink).seen(value),
+      );
+    }
+
+    // Everything the first instance did not process must still be there for
+    // the next member of the group — at-least-once across a redeploy.
+    const secondApp = await Test.createTestingModule({
+      imports: [DrainModule],
+    }).compile();
+    await secondApp.init();
+
+    try {
+      const sink = secondApp.get(MessageSink);
+      const unprocessed = values.filter(value => !processedByFirst.includes(value));
+      assert.ok(unprocessed.length > 0, 'the shutdown left records unprocessed');
+      await waitFor(() => unprocessed.every(value => sink.seen(value)), {
+        timeoutMs: 45_000,
+      }).catch(() => {
+        const lost = unprocessed.filter(value => !sink.seen(value));
+        assert.fail(
+          `${lost.length} of ${unprocessed.length} records the first instance ` +
+            'never processed were committed anyway and are lost',
+        );
+      });
     } finally {
       await secondApp.close();
     }

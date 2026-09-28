@@ -243,7 +243,7 @@ describe('Kafka batch consumption', () => {
     await app.close();
   });
 
-  it('ignores a batch delivered for an unrouted topic', async () => {
+  it('acknowledges a batch delivered for an unrouted topic', async () => {
     const driver = createControllableDriver();
     let calls = 0;
 
@@ -263,13 +263,50 @@ describe('Kafka batch consumption', () => {
     }).compile();
     const app = await moduleRef.init();
 
+    const resolved: string[] = [];
     await driver.consumers[0].eachBatch?.({
-      batch: batch('elsewhere', 0, messages({ id: 1 })),
-      resolveOffset: () => {},
+      batch: batch('elsewhere', 0, messages({ id: 1 }, { id: 2 })),
+      resolveOffset: offset => resolved.push(offset),
     });
     assert.equal(calls, 0);
+    // Nothing will ever handle it, and leaving it unresolved would make the
+    // client hand the same batch back forever — the per-message path already
+    // acknowledges an unrouted record the same way.
+    assert.deepEqual(resolved, ['0', '1']);
 
     await app.close();
+  });
+
+  it('hands a batch back untouched once shutdown has begun', async () => {
+    const driver = createControllableDriver();
+    let calls = 0;
+
+    @KafkaConsumer('late')
+    class LateConsumer {
+      @KafkaHandler('late', { batch: true })
+      consume(): void {
+        calls += 1;
+      }
+    }
+
+    const moduleRef = await Test.createTestingModule({
+      imports: [
+        KafkaModule.forRoot({ driverFactory: driver.factory }),
+        KafkaModule.forFeature([LateConsumer]),
+      ],
+    }).compile();
+    const app = await moduleRef.init();
+    const eachBatch = driver.consumers[0].eachBatch;
+    await app.close();
+
+    const resolved: string[] = [];
+    await eachBatch?.({
+      batch: batch('late', 0, messages({ id: 1 })),
+      resolveOffset: offset => resolved.push(offset),
+    });
+    // Unresolved, so the client seeks back and the next owner receives it.
+    assert.equal(calls, 0);
+    assert.deepEqual(resolved, []);
   });
 
   it('maps an unhandled batch error through the error mapper', async () => {

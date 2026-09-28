@@ -74,9 +74,20 @@ export class KafkaDispatcher {
 
   /**
    * Dispatch one consumed message to every handler routed to its topic.
+   *
+   * Once shutdown has begun the record is rejected, not ignored: returning
+   * normally tells Confluent's client the record was processed, and it stores
+   * the offset and commits it on the way out — until 0.5.1 a record fetched
+   * during the drain was lost that way. Rejecting makes the client seek back,
+   * so the next member of the group receives it. A record for a topic no
+   * handler routes is acknowledged instead: nothing will ever handle it, and
+   * leaving it uncommitted would stall the partition.
    */
   eachMessage(payload: KafkaEachMessagePayload): Promise<void> {
-    const matched = this.match(payload.topic);
+    if (this.shuttingDown) {
+      return Promise.reject(shuttingDownError(payload.topic, payload.partition));
+    }
+    const matched = this.routes.get(payload.topic);
     if (!matched) {
       return Promise.resolve();
     }
@@ -96,10 +107,19 @@ export class KafkaDispatcher {
    * must never claim more than it did. Resolving while the batch was decoded,
    * as this did until 0.5.1, told the client the batch was processed before the
    * handler ran — a failed batch was committed and never redelivered.
+   *
+   * A batch delivered after shutdown began is left unresolved, which already
+   * makes the client seek back to its first message without logging an error;
+   * a batch for a topic no handler routes is acknowledged, as in
+   * {@link eachMessage}.
    */
   eachBatch(payload: KafkaEachBatchPayload): Promise<void> {
-    const matched = this.match(payload.batch.topic);
+    if (this.shuttingDown) {
+      return Promise.resolve();
+    }
+    const matched = this.routes.get(payload.batch.topic);
     if (!matched) {
+      resolveBatch(payload);
       return Promise.resolve();
     }
     const invocation = this.toBatchInvocation(payload.batch);
@@ -107,24 +127,13 @@ export class KafkaDispatcher {
   }
 
   /**
-   * Wait for every in-flight message/batch to settle, then mark shutdown so no
-   * further records are accepted.
+   * Stop accepting records, then wait for every in-flight message/batch to
+   * settle. A record delivered from here on is handed back to the client
+   * rather than acknowledged (see {@link eachMessage}).
    */
   async drain(): Promise<void> {
     this.shuttingDown = true;
     await Promise.allSettled([...this.inFlight]);
-  }
-
-  /**
-   * The matching handlers for a topic, or `undefined` when shutting down or the
-   * topic is unrouted (a record the broker delivered for a topic this consumer
-   * does not own — ignored so its offset stays uncommitted).
-   */
-  private match(topic: string): DispatchHandler[] | undefined {
-    if (this.shuttingDown) {
-      return undefined;
-    }
-    return this.routes.get(topic);
   }
 
   /**
@@ -221,6 +230,13 @@ export class KafkaDispatcher {
     );
     return { payload: messages, context: new KafkaBatchContext(batch) };
   }
+}
+
+function shuttingDownError(topic: string, partition: number): Error {
+  return new Error(
+    `Kafka consumer is shutting down; the record from ${topic}[${partition}] ` +
+      'was not handled and is left for the next member of the group.',
+  );
 }
 
 /**

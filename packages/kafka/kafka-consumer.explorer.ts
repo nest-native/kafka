@@ -81,6 +81,13 @@ interface DiscoveredHandler {
  */
 type ConsumerKey = string;
 
+/** One started consumer, with what graceful shutdown needs to stop it. */
+interface RunningConsumer {
+  consumer: KafkaDriverConsumer;
+  dispatcher: KafkaDispatcher;
+  topics: string[];
+}
+
 /**
  * Discovers `@KafkaConsumer` classes, wires their `@KafkaHandler` methods
  * through the Nest enhancer pipeline, and subscribes them to their topics on the
@@ -106,8 +113,7 @@ export class KafkaConsumerExplorer
 {
   private readonly logger = new Logger(KafkaConsumerExplorer.name);
   private readonly contextCreator: KafkaContextCreator;
-  private readonly consumers: KafkaDriverConsumer[] = [];
-  private readonly dispatchers: KafkaDispatcher[] = [];
+  private readonly running: RunningConsumer[] = [];
   private readonly errorMapper: KafkaErrorMapper;
   private readonly replier: KafkaReplyPublisher;
 
@@ -151,14 +157,38 @@ export class KafkaConsumerExplorer
 
   /**
    * Graceful shutdown, in the order the constitution requires: stop accepting
-   * newly delivered records and drain the work already in flight so no handler is
-   * interrupted mid-message, then disconnect every consumer.
+   * newly delivered records — pause every consumer so the client stops handing
+   * them over, and have the dispatcher hand back any that still arrive — then
+   * drain the work already in flight so no handler is interrupted mid-message,
+   * then disconnect every consumer. A record that was fetched but not handled
+   * is never committed, so the next member of the group receives it.
    */
   async onApplicationShutdown(): Promise<void> {
-    await Promise.all(this.dispatchers.map(dispatcher => dispatcher.drain()));
-    await Promise.all(this.consumers.map(consumer => consumer.disconnect()));
-    this.consumers.length = 0;
-    this.dispatchers.length = 0;
+    for (const { consumer, topics } of this.running) {
+      this.pauseForShutdown(consumer, topics);
+    }
+    await Promise.all(this.running.map(({ dispatcher }) => dispatcher.drain()));
+    await Promise.all(this.running.map(({ consumer }) => consumer.disconnect()));
+    this.running.length = 0;
+  }
+
+  /**
+   * Best effort by design: if the driver cannot pause (or pausing fails, for a
+   * consumer that never connected), shutdown carries on — the dispatcher still
+   * rejects every late record, so nothing is committed that was not handled.
+   */
+  private pauseForShutdown(consumer: KafkaDriverConsumer, topics: string[]): void {
+    if (!consumer.pause) {
+      return;
+    }
+    try {
+      consumer.pause(topics.map(topic => ({ topic })));
+    } catch (error) {
+      this.logger.warn(
+        `Could not pause a consumer before draining (${describeError(error)}); ` +
+          'records delivered during the drain are handed back instead.',
+      );
+    }
   }
 
   private discoverHandlers(): DiscoveredHandler[] {
@@ -378,8 +408,6 @@ export class KafkaConsumerExplorer
     }
 
     const consumer = this.driver.createConsumer(config);
-    this.consumers.push(consumer);
-
     const maxInFlight = Math.max(...handlers.map(handler => handler.maxInFlight));
     const dispatcher = new KafkaDispatcher(
       routes,
@@ -387,10 +415,11 @@ export class KafkaConsumerExplorer
       maxInFlight,
       this.replier,
     );
-    this.dispatchers.push(dispatcher);
+    const topics = [...routes.keys()];
+    this.running.push({ consumer, dispatcher, topics });
 
     await consumer.connect();
-    await consumer.subscribe({ topics: [...routes.keys()] });
+    await consumer.subscribe({ topics });
     await consumer.run(this.runConfig(first, dispatcher, handlers));
   }
 
@@ -485,4 +514,8 @@ export class KafkaConsumerExplorer
         'replying handler per topic.',
     );
   }
+}
+
+function describeError(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
 }

@@ -747,11 +747,105 @@ describe('Kafka consumer transport', () => {
     await eachMessage(messagePayload('gated', { id: 1 }));
     await app.close();
 
-    // A record delivered after shutdown began is refused (offset uncommitted),
-    // so the handler never runs for it.
-    await eachMessage(messagePayload('gated', { id: 2 }));
+    // A record delivered after shutdown began is handed back — rejected, not
+    // ignored: returning normally would tell the client it was processed, and
+    // the client would commit it. The handler never runs for it.
+    await assert.rejects(
+      eachMessage(messagePayload('gated', { id: 2 })),
+      /shutting down; the record from gated\[0\] was not handled/,
+    );
 
     assert.deepEqual(handled, [1]);
+  });
+
+  it('pauses every consumer before draining it on shutdown', async () => {
+    const driver = createControllableDriver();
+    const events: string[] = [];
+    let release: () => void = () => {};
+    const gate = new Promise<void>(resolve => {
+      release = resolve;
+    });
+
+    @KafkaConsumer('orders', { groupId: 'pause-orders' })
+    class OrdersConsumer {
+      @KafkaHandler()
+      async handle(): Promise<void> {
+        await gate;
+        events.push('handled');
+      }
+
+      @KafkaHandler('refunds')
+      refund(): void {}
+    }
+
+    const moduleRef = await Test.createTestingModule({
+      imports: [
+        KafkaModule.forRoot({ driverFactory: driver.factory }),
+        KafkaModule.forFeature([OrdersConsumer]),
+      ],
+    }).compile();
+    const app = await moduleRef.init();
+    const [record] = driver.consumers;
+    record.consumer.pause = topics => {
+      events.push(`paused ${topics.map(({ topic }) => topic).join(',')}`);
+      // The in-flight handler may finish only once the consumer is paused.
+      release();
+    };
+    const disconnect = record.consumer.disconnect;
+    record.consumer.disconnect = async () => {
+      events.push('disconnected');
+      await disconnect();
+    };
+
+    const inFlight = record.eachMessage?.(messagePayload('orders', { id: 1 }));
+    // Failsafe: without a pause the handler would wait forever; release it
+    // late instead, so a missing pause fails the assertion below, not a hang.
+    const failsafe = setTimeout(release, 1_000);
+    await app.close();
+    await inFlight;
+    clearTimeout(failsafe);
+
+    // Paused first (so the client stops handing records over), then the
+    // in-flight handler finished, then the consumer left the group.
+    assert.deepEqual(events, ['paused orders,refunds', 'handled', 'disconnected']);
+  });
+
+  it('still drains and disconnects when pausing fails', async () => {
+    // The client throws an Error; a custom driver may throw anything.
+    for (const failure of [
+      new Error('Pause can only be called while connected.'),
+      'pause refused',
+    ]) {
+      const driver = createControllableDriver();
+
+      @KafkaConsumer('fragile')
+      class FragileConsumer {
+        @KafkaHandler()
+        handle(): void {}
+      }
+
+      const moduleRef = await Test.createTestingModule({
+        imports: [
+          KafkaModule.forRoot({ driverFactory: driver.factory }),
+          KafkaModule.forFeature([FragileConsumer]),
+        ],
+      }).compile();
+      const app = await moduleRef.init();
+      const [record] = driver.consumers;
+      record.consumer.pause = () => {
+        throw failure;
+      };
+
+      await app.close();
+
+      assert.equal(record.disconnected, 1, 'shutdown carried on and disconnected');
+      // A late record is still handed back, paused or not.
+      await assert.rejects(
+        record.eachMessage?.(messagePayload('fragile', { id: 1 })) ??
+          Promise.resolve(),
+        /shutting down/,
+      );
+    }
   });
 
   it('honours a custom error mapper that commits every failure', async () => {

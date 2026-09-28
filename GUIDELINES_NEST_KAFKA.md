@@ -142,8 +142,8 @@ deliver on Confluent's officially supported client, never hide Kafka semantics.
   documented default.
 - Per-topic concurrency: address `nestjs/nest#12703` explicitly with a
   documented default and an opt-out.
-- Graceful shutdown order: stop accepting new claims → drain in-flight →
-  disconnect.
+- Graceful shutdown order: stop accepting new claims (pause every consumer, and
+  reject any record that still arrives) → drain in-flight → disconnect.
 - Header conventions stay neutral; do not standardize `traceId` /
   `correlationId` / `messageType` keys. **One bounded exception:** the opt-in
   request-reply feature cannot be header-neutral — a reply address and a
@@ -325,6 +325,21 @@ what `resolveOffset` receives, and when. And a documented claim about broker
 behaviour needs a real-broker case behind it. (`#12355` itself was a rebalance
 loop in the official transport's custom reply-partition assigner, which this
 package never had.)
+
+**Returning is acknowledging.** Confluent's client stores a record's offset as
+soon as `eachMessage` returns without an error — and a batch's offsets as soon
+as they are resolved — and commits whatever it stored. Every path that returns
+normally therefore claims the record was handled, whether a handler ran or not.
+That was false twice, with the same result: batches resolved while being decoded
+(above), and records delivered during the shutdown drain, which the dispatcher
+ignored and returned from, so one was committed unprocessed on every redeploy
+under load. The rule: a record the transport did not hand to a handler is
+rejected (per message) or left unresolved (batch), never returned from. The one
+deliberate exception is a record for a topic nothing routes, which is
+acknowledged so it cannot stall its partition. Shutdown pauses every consumer
+before draining, so late records are rare and the rejection path stays quiet,
+and a real-broker case shuts an application down mid-stream and requires the
+next member of the group to receive every record the first one did not process.
 
 **NestJS majors are adopted by widening the peer range, and the `@nestjs/*`
 devDependencies stay on the older major.** NestJS 12 (2026-08) was added as
