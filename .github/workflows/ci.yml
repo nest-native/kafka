@@ -348,8 +348,17 @@ jobs:
           sed -i "s/DURATION_PLACEHOLDER/${DURATION_SECONDS}s (${DURATION_MS}ms)/" "$GITHUB_STEP_SUMMARY"
 
   integration:
-    name: Real-broker integration (KRaft Kafka)
+    name: Real-broker integration (Kafka ${{ matrix.kafka }})
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # Both ends of the tested broker range, stated in
+        # website/docs/support-policy.md (update it with this list). 3.8.1 is
+        # the broker this suite was written against; 4.x is KRaft-only and
+        # dropped the old protocol API versions (KIP-896), so the newest 4.x
+        # release is the other end.
+        kafka: ['3.8.1', '4.3.1']
 
     steps:
       - uses: actions/checkout@v7
@@ -366,7 +375,7 @@ jobs:
       - name: Install the optional Confluent client (this job only)
         run: npm i --no-save "@confluentinc/kafka-javascript@^1.9"
 
-      - name: Start a single-node KRaft Kafka
+      - name: Start a single-node KRaft Kafka ${{ matrix.kafka }}
         run: |
           docker run -d --name kafka -p 9092:9092 \
             -e KAFKA_NODE_ID=1 \
@@ -382,7 +391,7 @@ jobs:
             -e KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS=0 \
             -e KAFKA_AUTO_CREATE_TOPICS_ENABLE=true \
             -e CLUSTER_ID=5L6g3nShT-eMCtK--X86sw \
-            apache/kafka:3.8.1
+            "apache/kafka:${{ matrix.kafka }}"
 
       - name: Wait for the broker to accept requests
         run: |

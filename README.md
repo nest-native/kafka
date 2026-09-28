@@ -237,7 +237,7 @@ packages, using `node:test` and `c8`:
   sample matrix against it, so both ends of the range are tested claims
 - a real-broker integration job that runs a produce → consume round-trip, a
   transactional commit, per-topic concurrency, and a **broker restart** against
-  a single-node KRaft Kafka (skipped locally unless `KAFKA_BROKERS` is set;
+  a single-node KRaft Kafka, once on 3.x and once on 4.x (skipped locally unless `KAFKA_BROKERS` is set;
   the restart case additionally needs `KAFKA_RESTART_CONTAINER`)
 
 Run the local gate with:

@@ -88,7 +88,9 @@ a file, so the trap cannot come back on the 11.x install where it is invisible.
 ## Driver-Backed Integration
 
 A dedicated `integration` CI job stands up a single-node **KRaft** Kafka
-(`apache/kafka`) and runs `npm run test:integration` against it with
+(`apache/kafka`), once per end of the tested broker range (a 3.x and a 4.x
+release; the exact versions are in the [Support Policy](support-policy.md)),
+and runs `npm run test:integration` against it with
 `KAFKA_BROKERS=localhost:9092`. That suite (`packages/kafka/test/kafka.integration.spec.ts`)
 opens a real connection through `createConfluentDriver` and the native
 `@confluentinc/kafka-javascript` client to prove the behaviour the in-memory

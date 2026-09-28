@@ -12,6 +12,7 @@ the package's published peer ranges.
 | `@confluentinc/kafka-javascript` | `^1.9` (pin the major; it tracks librdkafka) |
 | TypeScript | `^6` |
 | Validation | `class-validator` and Zod, both app-owned |
+| Kafka brokers | tested against KRaft `3.8.1` and `4.3.1` |
 
 Both ends of the NestJS range are tested, not assumed. The default lockfile
 keeps the suite on an 11.x in the middle of the range; the `nestjs-compat` CI
@@ -27,6 +28,14 @@ code (this package, and every sample) goes through Node's `require(esm)`,
 which is behind a flag before Node.js 22.12.0, so NestJS 12 needs Node.js
 `>=22.12`. `engines` stays `>=22` because the 11 end does not need more;
 CI's NestJS 12 leg runs on a current 22.x.
+
+The broker range is tested the same way: the real-broker integration suite
+runs once per end, against a single-node KRaft `3.8.1` and `4.3.1`. Kafka 4 is
+KRaft-only and removed the old protocol API versions (KIP-896); the Confluent
+client negotiates versions with the broker, and the suite, including the
+broker-restart case and the `@nestjs/microservices` interop cases, passes
+against both. Brokers in between are not run, but nothing in this package
+depends on a feature one of them added or removed.
 
 ## Peer Dependencies
 

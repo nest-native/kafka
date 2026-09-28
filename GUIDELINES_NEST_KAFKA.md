@@ -424,7 +424,11 @@ local-only gate.
 - `npm run infra:up` — a disposable single-node KRaft broker from
   `compose.yaml` (`apache/kafka`, host port `127.0.0.1:19094`). Needs Docker.
   A fresh broker takes ~10-30 seconds to become healthy; `infra:up` waits on
-  the container healthcheck before returning.
+  the container healthcheck before returning. The image defaults to the 3.x
+  end of the tested broker range; `KAFKA_IMAGE=apache/kafka:4.3.1 npm run
+  infra:up` runs the 4.x end. CI runs both — the `integration` job is a matrix
+  over the two versions, and `website/docs/support-policy.md` states them, so
+  a change to one updates the other.
 - `npm run test:full` — the unit suite first (in-memory broker, no env vars),
   then the real-broker integration suite with `KAFKA_BROKERS=localhost:19094`
   set on the integration half only. The integration spec proves what the

@@ -22,6 +22,12 @@ package release is useful for users.
   that end coherent, so the final tree is the gate, not the install log).
   The same script runs against the lockfile in `release:check`. No published
   range changed.
+- **The real-broker integration suite runs against Kafka 3.x and 4.x.** The
+  `integration` CI job is a matrix over a single-node KRaft `3.8.1` and
+  `4.3.1`, so every real-broker case — the broker restart and the
+  `@nestjs/microservices` interop cases included — is proven on the Kafka 4
+  line, which is KRaft-only and removed the old protocol API versions.
+  `compose.yaml` takes a `KAFKA_IMAGE` override to run the 4.x end locally.
 
 ## 0.5.1
 
