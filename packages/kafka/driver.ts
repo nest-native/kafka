@@ -222,7 +222,13 @@ export type KafkaEachBatchHandler = (
  * KafkaJS-compatible `subscribe` options.
  */
 export interface KafkaSubscription {
-  topics: string[];
+  /**
+   * Topic names, and `RegExp` patterns starting with `^` without flags.
+   * Confluent's client hands a pattern to `librdkafka`, which re-matches it on
+   * every metadata refresh (`topic.metadata.refresh.interval.ms`), so a matching
+   * topic created later is subscribed without a restart.
+   */
+  topics: (string | RegExp)[];
 
   /**
    * @deprecated Not usable with the client this driver models. `kafkajs`

@@ -1,5 +1,9 @@
 import { KAFKA_HANDLER_METADATA } from './constants';
-import { KafkaHandlerMetadata, KafkaHandlerOptions } from './interfaces';
+import {
+  KafkaHandlerMetadata,
+  KafkaHandlerOptions,
+  KafkaTopicPattern,
+} from './interfaces';
 
 /**
  * Mark a method as a Kafka handler.
@@ -11,7 +15,9 @@ import { KafkaHandlerMetadata, KafkaHandlerOptions } from './interfaces';
  *
  * When `topic` is omitted the handler inherits the topic declared on its owning
  * {@link KafkaConsumer}. A handler with neither its own topic nor an inherited
- * one is a configuration error surfaced at bootstrap.
+ * one is a configuration error surfaced at bootstrap. A `RegExp` topic
+ * (starting with `^`, no flags) consumes every matching topic — see
+ * {@link KafkaTopicPattern}; a replying handler must name its topic exactly.
  *
  * @param topic - Optional topic (or pattern) this method consumes.
  * @param options - Optional per-handler consumer-group override.
@@ -19,7 +25,7 @@ import { KafkaHandlerMetadata, KafkaHandlerOptions } from './interfaces';
  * @publicApi
  */
 export function KafkaHandler(
-  topic?: string,
+  topic?: KafkaTopicPattern,
   options: KafkaHandlerOptions = {},
 ): MethodDecorator {
   const metadata: KafkaHandlerMetadata = { topic, options };

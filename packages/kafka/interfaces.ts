@@ -297,6 +297,14 @@ export interface KafkaConsumerOptions extends KafkaConcurrencyOptions {
 }
 
 /**
+ * What a consumer subscribes to: a topic name, or a `RegExp` matching topic
+ * names. A pattern must start with `^` and carry no flags — the form Confluent's
+ * client passes to `librdkafka`, which re-matches it on every metadata refresh,
+ * so a matching topic created later is picked up without a restart.
+ */
+export type KafkaTopicPattern = string | RegExp;
+
+/**
  * Resolved metadata stored on a `@KafkaConsumer` class.
  */
 export interface KafkaConsumerMetadata {
@@ -305,7 +313,7 @@ export interface KafkaConsumerMetadata {
    * own topic. Optional: a consumer can group handlers that each name their own
    * topic.
    */
-  topic?: string;
+  topic?: KafkaTopicPattern;
   options: KafkaConsumerOptions;
 }
 
@@ -360,10 +368,10 @@ export interface KafkaHandlerOptions extends KafkaConcurrencyOptions {
  */
 export interface KafkaHandlerMetadata {
   /**
-   * The topic this method consumes. Falls back to the topic declared on the
-   * owning `@KafkaConsumer` when omitted.
+   * The topic (or pattern) this method consumes. Falls back to the topic
+   * declared on the owning `@KafkaConsumer` when omitted.
    */
-  topic?: string;
+  topic?: KafkaTopicPattern;
   options: KafkaHandlerOptions;
 }
 

@@ -4,6 +4,7 @@ import { MessageLog } from './common/message-log.service';
 import { InMemoryBroker } from './in-memory-broker';
 import { resolveBrokers, resolveDriverFactory } from './kafka-driver';
 import { AnalyticsModule } from './analytics/analytics.module';
+import { ActivityModule } from './activity/activity.module';
 import { NotificationsModule } from './notifications/notifications.module';
 import { InventoryModule } from './inventory/inventory.module';
 import { OrdersModule } from './orders/orders.module';
@@ -53,6 +54,7 @@ class SharedModule {}
     InventoryModule,
     NotificationsModule,
     AnalyticsModule,
+    ActivityModule,
   ],
 })
 export class AppModule {}

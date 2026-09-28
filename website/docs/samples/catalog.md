@@ -8,8 +8,9 @@ repository.
 
 The full integration baseline. Producer and consumers wired together across
 feature modules, the full enhancer pipeline, request-scoped DI, parameter
-decorators, a chained consumer, a transactional producer, and a batch consumer
-with per-topic concurrency. Never simplified for brevity — richness proves the
+decorators, a chained consumer, a transactional producer, a batch consumer
+with per-topic concurrency, and an activity consumer subscribed by topic
+pattern. Never simplified for brevity — richness proves the
 integration depth.
 
 Related docs: [Consumers](../consumers.md), [Producer](../producer.md),

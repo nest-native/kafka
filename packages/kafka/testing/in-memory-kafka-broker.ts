@@ -30,6 +30,8 @@ export interface RecordedKafkaMessage {
  */
 interface ConsumerRegistration {
   topics: Set<string>;
+  /** `RegExp` subscriptions, matched against every topic a delivery names. */
+  patterns: RegExp[];
   eachMessage?: KafkaEachMessageHandler;
   eachBatch?: KafkaEachBatchHandler;
 }
@@ -206,19 +208,24 @@ export class InMemoryKafkaBroker {
   }
 
   private createConsumer(_config?: KafkaConsumerConfig): KafkaDriverConsumer {
-    const registration: ConsumerRegistration = { topics: new Set() };
+    const registration: ConsumerRegistration = { topics: new Set(), patterns: [] };
     this.consumers.push(registration);
 
     return {
       connect: async () => {},
       disconnect: async () => {
         registration.topics.clear();
+        registration.patterns = [];
         registration.eachMessage = undefined;
         registration.eachBatch = undefined;
       },
       subscribe: async subscription => {
         for (const topic of subscription.topics) {
-          registration.topics.add(topic);
+          if (typeof topic === 'string') {
+            registration.topics.add(topic);
+          } else {
+            registration.patterns.push(topic);
+          }
         }
       },
       run: async config => {
@@ -294,7 +301,7 @@ export class InMemoryKafkaBroker {
       this.sent.push({ topic, message });
     }
     for (const consumer of this.consumers) {
-      if (consumer.topics.has(topic)) {
+      if (subscribes(consumer, topic)) {
         await this.deliverToConsumer(consumer, topic, messages);
       }
     }
@@ -356,6 +363,19 @@ export class InMemoryKafkaBroker {
     );
     await Promise.all(deliveries);
   }
+}
+
+/**
+ * Whether a consumer subscribed to `topic`, by name or by pattern — the broker
+ * matches patterns on every delivery, as `librdkafka` re-matches them on every
+ * metadata refresh, so a topic first produced to after the subscription is
+ * still delivered.
+ */
+function subscribes(consumer: ConsumerRegistration, topic: string): boolean {
+  return (
+    consumer.topics.has(topic) ||
+    consumer.patterns.some(pattern => pattern.test(topic))
+  );
 }
 
 function groupByPartition(

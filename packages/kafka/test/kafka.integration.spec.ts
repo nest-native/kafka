@@ -64,7 +64,8 @@ import { KafkaRequestReplyService } from '../kafka-request-reply.service';
  * failed with `'retry'`, a mid-stream graceful shutdown that commits nothing it
  * did not process, a retry backoff whose delay grows and that pauses only the
  * failing partition, a dead-letter record whose Spring headers survive the
- * round trip, and recovery across a broker restart.
+ * round trip, a pattern subscription that picks up a matching topic created
+ * while running, and recovery across a broker restart.
  * The second covers request-reply (ADR 0001) — see its own header below. Every
  * topic and group name is unique per run, so repeated CI runs against the same
  * broker never collide.
@@ -1006,6 +1007,72 @@ describe('Kafka real-broker integration', { skip }, () => {
       assert.equal(info?.exceptionFqcn, 'BadRequestException');
       assert.equal(info?.exceptionMessage, 'unparseable order');
       assert.match(info?.exceptionStacktrace ?? '', /BadRequestException: unparseable order/);
+    } finally {
+      await app.close();
+    }
+  });
+
+  it('subscribes by pattern, including a matching topic created while running', async () => {
+    const prefix = unique('it.pattern');
+    const [first, second, later] = ['a', 'b', 'later'].map(name => `${prefix}.${name}`);
+    const outside = unique('it.pattern-outside');
+    await createTopic(first, 1);
+    await createTopic(second, 1);
+    await createTopic(outside, 1);
+    // POSIX-compatible: escaped dots, nothing JavaScript-only.
+    const pattern = new RegExp(`^${prefix.replace(/\./g, '\\.')}\\.`);
+
+    @Injectable()
+    @KafkaConsumer(pattern, { groupId: unique('it-pattern-group') })
+    class PatternConsumer {
+      constructor(private readonly sink: MessageSink) {}
+
+      @KafkaHandler()
+      handle(@KafkaMessage() value: string, @KafkaCtx() context: KafkaContext) {
+        this.sink.record(`${context.getTopic()}:${value}`, context);
+      }
+    }
+
+    @Module({
+      imports: [
+        KafkaModule.forRoot({
+          clientId,
+          client: {
+            brokers,
+            // librdkafka re-matches the pattern on every metadata refresh; the
+            // default is five minutes, far too slow for a test to wait on.
+            'topic.metadata.refresh.interval.ms': 1_000,
+          },
+          driverFactory,
+        }),
+      ],
+      providers: [MessageSink, PatternConsumer],
+    })
+    class PatternModule {}
+
+    const app = await Test.createTestingModule({
+      imports: [PatternModule],
+    }).compile();
+    await app.init();
+
+    try {
+      const sink = app.get(MessageSink);
+      const producer = app.get(KafkaProducerService);
+      const seenOn = (topic: string, probe: string) => sink.seen(`${topic}:${probe}`);
+
+      await warmUpUntil(producer, first, probe => seenOn(first, probe));
+      await warmUpUntil(producer, second, probe => seenOn(second, probe));
+
+      // A topic that did not exist when the consumer subscribed.
+      await createTopic(later, 1);
+      await warmUpUntil(producer, later, probe => seenOn(later, probe), {
+        timeoutMs: 60_000,
+      });
+
+      const stray = `stray-${randomUUID()}`;
+      await producer.send({ topic: outside, messages: [{ value: stray }] });
+      await delay(3_000);
+      assert.equal(sink.seen(`${outside}:${stray}`), false, 'no match, no delivery');
     } finally {
       await app.close();
     }

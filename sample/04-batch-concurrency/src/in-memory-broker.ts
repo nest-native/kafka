@@ -68,6 +68,13 @@ export class InMemoryBroker {
       },
       subscribe: async subscription => {
         for (const topic of subscription.topics) {
+          if (typeof topic !== 'string') {
+            // This loopback broker routes exact topics only; InMemoryKafkaBroker
+            // from `@nest-native/kafka/testing` matches patterns too.
+            throw new Error(
+              `This sample broker cannot subscribe to the pattern ${String(topic)}.`,
+            );
+          }
           registration.topics.add(topic);
         }
       },

@@ -357,6 +357,22 @@ timers are cancelled when shutdown begins, because a resume after disconnect
 throws. Streaks are per consumer and in memory, so a rebalance or a restart
 starts a record over at the initial delay; the docs say so.
 
+**A topic pattern must mean the same to librdkafka and to JavaScript.** A
+`RegExp` topic is matched twice: `librdkafka` compiles the subscription as a
+POSIX extended regular expression and re-matches it on every metadata refresh,
+and the dispatcher routes each record with JavaScript's engine. Where the two
+disagree — `\d` is a literal `d` to POSIX, `(?:…)` and lookarounds do not
+compile — the broker would subscribe to one set of topics while the package
+routed another, silently. Bootstrap therefore refuses a pattern that is not
+anchored with `^`, carries flags (the client rejects both), or uses
+JavaScript-only syntax, and it refuses `reply: true` on a pattern, because two
+repliers could then match one request topic and the one-replier check could not
+see it. A pattern's topics are known only as records arrive, so graceful
+shutdown pauses the named topics plus every topic a pattern has delivered; the
+rest have nothing in flight. `KafkaSubscription.topics` carries the patterns to
+the driver, so a custom driver must match them or refuse them — never ignore
+them.
+
 **Dead letters use Spring Kafka's header contract, and stay primitives.**
 `toDeadLetterMessage` writes the `kafka_dlt-*` headers with Spring's names and
 encodings (an int32 partition, int64 offset and timestamp, UTF-8 text) rather

@@ -15,6 +15,8 @@ import type {
 
 interface Registration {
   topics: Set<string>;
+  /** `RegExp` subscriptions, matched against every delivered topic. */
+  patterns: RegExp[];
   eachMessage?: KafkaEachMessageHandler;
   eachBatch?: KafkaEachBatchHandler;
 }
@@ -71,19 +73,27 @@ export class InMemoryBroker {
   }
 
   private createConsumer(_config?: KafkaConsumerConfig): KafkaDriverConsumer {
-    const registration: Registration = { topics: new Set() };
+    const registration: Registration = { topics: new Set(), patterns: [] };
     this.consumers.push(registration);
 
     return {
       connect: async () => {},
       disconnect: async () => {
         registration.topics.clear();
+        registration.patterns = [];
         registration.eachMessage = undefined;
         registration.eachBatch = undefined;
       },
       subscribe: async subscription => {
         for (const topic of subscription.topics) {
-          registration.topics.add(topic);
+          if (typeof topic === 'string') {
+            registration.topics.add(topic);
+          } else {
+            // A pattern subscription (`@KafkaConsumer(/^showcase\\./)`):
+            // matched on every delivery, as librdkafka re-matches it on every
+            // metadata refresh.
+            registration.patterns.push(topic);
+          }
         }
       },
       run: async config => {
@@ -98,7 +108,10 @@ export class InMemoryBroker {
     messages: KafkaProducerMessage[],
   ): Promise<void> {
     for (const consumer of this.consumers) {
-      if (!consumer.topics.has(topic)) {
+      const subscribed =
+        consumer.topics.has(topic) ||
+        consumer.patterns.some(pattern => pattern.test(topic));
+      if (!subscribed) {
         continue;
       }
       await this.deliverToConsumer(consumer, topic, messages);

@@ -10,6 +10,18 @@ package release is useful for users.
 
 ### Added
 
+- **Topic patterns.** `@KafkaConsumer` and `@KafkaHandler` accept a `RegExp`
+  (`KafkaTopicPattern`) to consume every matching topic. The decorators already
+  documented "topic (or pattern)" but took only strings. Confluent's client hands
+  the pattern to `librdkafka`, which re-matches it on every metadata refresh, so
+  a matching topic created while the application runs is subscribed without a
+  restart — the real-broker suite proves it. Because `librdkafka` compiles the
+  subscription as a POSIX extended regular expression while this package routes
+  with JavaScript's, bootstrap refuses what the two would read differently: an
+  unanchored pattern, flags, `\d`/`\w`/`(?:…)`/lookarounds, and `reply: true`
+  on a pattern. A record both a named and a pattern handler route runs both, and
+  graceful shutdown pauses every topic a pattern has delivered. The showcase
+  gains an activity consumer subscribed by pattern.
 - **Dead-letter records.** `toDeadLetterMessage(context, error)` builds the dead
   letter for a failed message: its original key, value, and headers, plus
   Spring Kafka's `kafka_dlt-*` headers (original topic, partition, offset,
@@ -41,6 +53,10 @@ package release is useful for users.
 
 ### Changed
 
+- **`KafkaSubscription.topics` is `(string | RegExp)[]`.** A custom driver's
+  `subscribe` now receives the patterns an application declares (the samples'
+  loopback brokers show both answers: the showcase matches them, the others
+  refuse them). `InMemoryKafkaBroker` matches patterns on every delivery.
 - **Both ends of the NestJS peer range are now CI legs.** The single
   `nestjs-latest-major` job that installed `^12` is replaced by a
   `nestjs-compat` matrix: an `11 floor` leg pinned exactly to `11.0.0` (the

@@ -18,6 +18,7 @@ the package root.
 | --- | --- | --- |
 | `KafkaConsumer` | decorator | Class-level: `@KafkaConsumer(topic?, options?)`. |
 | `KafkaHandler` | decorator | Method-level: `@KafkaHandler(topic?, options?)`. |
+| `KafkaTopicPattern` | type | `string \| RegExp` — the `topic` both decorators take; a pattern is anchored, flag-free, POSIX syntax. See [Topic Patterns](consumers.md#topic-patterns). |
 | `KafkaConsumerOptions` | interface | `groupId` plus concurrency options. |
 | `KafkaHandlerOptions` | interface | `batch`, `reply`, plus concurrency options. |
 
