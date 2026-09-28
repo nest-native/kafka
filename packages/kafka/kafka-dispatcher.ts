@@ -222,7 +222,7 @@ export class KafkaDispatcher {
       // The handler's `@UseFilters` pipeline already ran; an error here means
       // no filter handled it. Map it to commit-or-retry instead of letting it
       // swallow silently (`nestjs/nest#9679`) or crash the consumer.
-      applyKafkaErrorBehavior(error, invocation.context, this.errorMapper);
+      await applyKafkaErrorBehavior(error, invocation.context, this.errorMapper);
       return { status: 'error', error };
     }
   }
@@ -244,7 +244,7 @@ export class KafkaDispatcher {
       // An unsent reply is unprocessed work from the requester's point of view,
       // so it goes through the same mapper as any other failure — redelivery by
       // default, another chance to answer inside the timeout window.
-      applyKafkaErrorBehavior(error, invocation.context, this.errorMapper);
+      await applyKafkaErrorBehavior(error, invocation.context, this.errorMapper);
     }
   }
 

@@ -75,6 +75,13 @@ The mapper receives the error and the `KafkaContext` (or `KafkaBatchContext` for
 batch handlers, together typed as `KafkaErrorContext`), so it can decide based on
 the topic, partition, or headers.
 
+The mapper may be **async**. The transport awaits it before the message is
+committed or handed back, so work inside it — a dead-letter produce — finishes
+first. A mapper that throws or rejects leaves the message to be retried, so a
+dead-letter produce that fails never loses it. Declare an async mapper's return
+type: TypeScript otherwise widens a returned `'commit'` to `string`, which the
+option does not accept.
+
 ## Dead-Letter Queues Are A Pattern, Not A Framework
 
 The package provides the primitives, not a DLQ framework. Implement the pattern in
@@ -84,15 +91,19 @@ then commit so it is not redelivered:
 ```ts
 KafkaModule.forRoot({
   client: {brokers: ['localhost:9092']},
-  errorMapper: async (error, context) => {
+  errorMapper: async (error, context): Promise<KafkaErrorBehavior> => {
     await deadLetterProducer.send({
       topic: `${context.getTopic()}.dlq`,
       messages: [{value: JSON.stringify({error: String(error)})}],
     });
-    return 'commit';
+    return 'commit'; // only once the dead letter is written
   },
 });
 ```
+
+Versions up to 0.5.1 compared the mapper's result without awaiting it, so an
+async mapper — this very example — committed every message it saw, before its
+produce finished and even when the produce failed.
 
 Sample `03-headers-context-errors` isolates the error-mapping behavior end to end.
 See the [Sample Catalog](samples/catalog.md).

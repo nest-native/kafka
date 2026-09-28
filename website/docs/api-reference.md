@@ -54,7 +54,7 @@ See [Producer](producer.md) and [Transactions](transactions.md).
 
 | Export | Kind | Notes |
 | --- | --- | --- |
-| `KafkaErrorMapper` | type | `(error, context) => KafkaErrorBehavior`. |
+| `KafkaErrorMapper` | type | `(error, context) => KafkaErrorBehavior \| Promise<KafkaErrorBehavior>` — awaited; a rejection retries. |
 | `KafkaErrorBehavior` | type | `'commit' \| 'retry'`. |
 | `defaultKafkaErrorMapper` | const | Commits 4xx client errors, retries the rest. |
 | `KafkaErrorContext` | type | `KafkaContext \| KafkaBatchContext`. |

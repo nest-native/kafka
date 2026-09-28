@@ -41,6 +41,7 @@ import { KafkaHandler } from '../kafka-handler.decorator';
 import { KafkaContext } from '../kafka-context';
 import { KafkaModule } from '../kafka.module';
 import { KafkaModuleOptions } from '../interfaces';
+import { KafkaErrorBehavior, KafkaErrorMapper } from '../kafka-error-mapping';
 
 /** Silence Nest's bootstrap logging during the tests. */
 Logger.overrideLogger(false);
@@ -1044,5 +1045,71 @@ describe('Kafka retry backoff', () => {
   it('refuses an invalid retryBackoff at bootstrap', async () => {
     const driver = createControllableDriver({ pausable: true });
     await assert.rejects(start(driver, { multiplier: 0.5 }), /Invalid retryBackoff/);
+  });
+});
+
+describe('Kafka async error mapper', () => {
+  @KafkaConsumer('dead-letter-source')
+  class PoisonConsumer {
+    @KafkaHandler()
+    handle(): void {
+      throw new Error('poison record');
+    }
+  }
+
+  async function start(driver: ControllableDriver, errorMapper: KafkaErrorMapper) {
+    const moduleRef = await Test.createTestingModule({
+      imports: [
+        KafkaModule.forRoot({ driverFactory: driver.factory, errorMapper }),
+        KafkaModule.forFeature([PoisonConsumer]),
+      ],
+    }).compile();
+    return moduleRef.init();
+  }
+
+  it('awaits an async mapper that decides to retry', async () => {
+    const driver = createControllableDriver();
+    const app = await start(driver, async (): Promise<KafkaErrorBehavior> => {
+      await new Promise(resolve => setTimeout(resolve, 5));
+      return 'retry';
+    });
+
+    // 'retry' must reach the client as a rejection, or the record is committed.
+    await assert.rejects(
+      driver.consumers[0].eachMessage?.(messagePayload('dead-letter-source', { id: 1 })) ??
+        Promise.resolve(),
+      /poison record/,
+    );
+    await app.close();
+  });
+
+  it('commits only after an async mapper finished its dead-letter produce', async () => {
+    const driver = createControllableDriver();
+    const deadLettered: string[] = [];
+    const app = await start(driver, async (error): Promise<KafkaErrorBehavior> => {
+      await new Promise(resolve => setTimeout(resolve, 5));
+      deadLettered.push(String(error));
+      return 'commit';
+    });
+
+    await driver.consumers[0].eachMessage?.(messagePayload('dead-letter-source', { id: 1 }));
+    // Resolving tells the client the record is done; the produce came first.
+    assert.deepEqual(deadLettered, ['Error: poison record']);
+    await app.close();
+  });
+
+  it('retries the record when an async mapper fails', async () => {
+    const driver = createControllableDriver();
+    const app = await start(driver, async (): Promise<KafkaErrorBehavior> => {
+      throw new Error('dead-letter topic unavailable');
+    });
+
+    // The dead-letter produce failed, so the record must not be committed.
+    await assert.rejects(
+      driver.consumers[0].eachMessage?.(messagePayload('dead-letter-source', { id: 1 })) ??
+        Promise.resolve(),
+      /dead-letter topic unavailable/,
+    );
+    await app.close();
   });
 });

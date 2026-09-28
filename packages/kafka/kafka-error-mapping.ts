@@ -29,11 +29,16 @@ export type KafkaErrorBehavior = 'commit' | 'retry';
  * through {@link KafkaModuleOptions.errorMapper} to override the
  * {@link defaultKafkaErrorMapper} — for example to route a specific error to a
  * dead-letter topic before committing.
+ *
+ * It may be async: the transport awaits it before the record is committed or
+ * handed back, so a dead-letter produce inside it finishes first. A mapper that
+ * throws or rejects leaves the record to be retried — a dead-letter produce
+ * that failed never loses the record.
  */
 export type KafkaErrorMapper = (
   error: unknown,
   context: KafkaErrorContext,
-) => KafkaErrorBehavior;
+) => KafkaErrorBehavior | Promise<KafkaErrorBehavior>;
 
 /**
  * The default mapping from a thrown error to consumer behaviour, addressing the
@@ -56,19 +61,25 @@ export const defaultKafkaErrorMapper: KafkaErrorMapper = error => {
 };
 
 /**
- * Apply an {@link KafkaErrorMapper} to a failed message. Returns when the error
- * maps to `'commit'` (the message is acknowledged); re-throws the original error
- * when it maps to `'retry'` so the caller can leave the offset uncommitted and
- * let the broker redeliver.
+ * Apply an {@link KafkaErrorMapper} to a failed message. Resolves when the error
+ * maps to `'commit'` (the message is acknowledged); rejects with the original
+ * error when it maps to `'retry'` so the caller can leave the offset
+ * uncommitted and let the broker redeliver. A mapper that throws or rejects
+ * rejects this too, with its own error — the record is retried.
+ *
+ * The mapper's result is awaited. Until 0.5.1 it was compared as returned, so
+ * an async mapper's promise never equalled `'retry'`: every record it saw was
+ * committed, before its dead-letter produce finished and even when that
+ * produce failed.
  *
  * @internal
  */
-export function applyKafkaErrorBehavior(
+export async function applyKafkaErrorBehavior(
   error: unknown,
   context: KafkaErrorContext,
   mapper: KafkaErrorMapper,
-): void {
-  if (mapper(error, context) === 'retry') {
+): Promise<void> {
+  if ((await mapper(error, context)) === 'retry') {
     throw error;
   }
 }
