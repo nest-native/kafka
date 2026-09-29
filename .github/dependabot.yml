@@ -47,8 +47,9 @@ updates:
           - "@nestjs/testing"
 
   # The docs site is its own npm project (website/package-lock.json), outside
-  # the root workspaces, so the "/" entry above never sees it: until this entry
-  # existed its advisories went unreported, and an audit on 2026-09-29 found 29.
+  # the root workspaces, so the "/" entry above never updates it. This keeps
+  # its direct dependencies current; transitive advisories still come from
+  # the security:audit:docs step, which Dependabot alerts did not cover.
   # Docusaurus packages move in lockstep, so they arrive as one group.
   - package-ecosystem: "npm"
     directory: "/website"
