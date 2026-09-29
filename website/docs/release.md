@@ -35,7 +35,7 @@ before it can be published. Version badges must stay dynamic
 
 ## The 0.x Release Line
 
-The current published version is `0.5.1`. `release:check` fails when this line
+The current published version is `0.6.0`. `release:check` fails when this line
 disagrees with `packages/kafka/package.json`, as it does for the README status
 lines and the `CONTRIBUTING.md` release line.
 

@@ -8,6 +8,8 @@ package release is useful for users.
 
 ## Unreleased
 
+## 0.6.0
+
 ### Added
 
 - **Health indicator.** `KafkaHealthIndicator.isHealthy(key?, {timeoutMs?})`
