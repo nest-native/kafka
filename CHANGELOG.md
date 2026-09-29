@@ -90,6 +90,11 @@ package release is useful for users.
 
 ### Fixed
 
+- **The release guide no longer states a stale version.** `website/docs/release.md`
+  said the current published version was `0.3.0` at `0.5.1`, and its per-release
+  list stopped at `0.3.0`: the README version gate never read that page. The
+  gate now requires the page's current-version line and checks it; the
+  duplicated list is replaced by a pointer to this changelog.
 - **An async error mapper is awaited.** The transport compared the mapper's
   result without awaiting it, so an async mapper's promise never equalled
   `'retry'`: every message it saw was committed — before the dead-letter

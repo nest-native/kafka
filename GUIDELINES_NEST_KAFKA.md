@@ -240,7 +240,8 @@ deliver on Confluent's officially supported client, never hide Kafka semantics.
 - Post-publish: re-run full CI with samples pinned to the published version.
 - **Prose version literals are release-blocking too.** The bolded `Status:` line
   in `README.md` and `packages/kafka/README.md`, the published release line in
-  `CONTRIBUTING.md`, badges, and any compatibility table must state the version
+  `CONTRIBUTING.md`, the current-version line in `website/docs/release.md`,
+  badges, and any compatibility table must state the version
   that is actually published. A stale literal is a documentation lie, not a
   cosmetic nit: it is the first thing a user reads and it silently contradicts
   npm. `release:check:readme-version`
