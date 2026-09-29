@@ -6,10 +6,14 @@ import path from 'node:path';
 const repoRoot = process.cwd();
 const statusPattern = /\*\*Status: `(\d+\.\d+\.\d+)`(?: \(`(\d+)\.x`\))?/g;
 const contributingPattern = /published at `(\d+\.\d+)\.x`/g;
+const releasePagePath = 'website/docs/release.md';
+const releasePagePattern = /current published version is `(\d+\.\d+\.\d+)`/g;
 const hardcodedBadgePattern = /img\.shields\.io\/badge\/(?:version|status)-[^)\s"']*/g;
 const publishedPackages = collectPublishedPackages();
 const failures = [];
 let checkedLiterals = 0;
+/** Files a version literal was verified in (the badge scan covers its own list). */
+const literalFiles = new Set();
 
 if (publishedPackages.length === 0) {
   throw new Error(
@@ -31,6 +35,7 @@ for (const publishedPackage of publishedPackages) {
 
 checkStatusLiterals('README.md', knownVersions);
 checkReleaseLineLiterals('CONTRIBUTING.md', knownVersions);
+checkReleasePage(knownVersions);
 
 for (const relativeFilePath of scannedFiles) {
   checkHardcodedBadges(relativeFilePath);
@@ -48,7 +53,7 @@ if (failures.length > 0) {
 }
 
 console.log(
-  `README version sync OK: ${checkedLiterals} version literals across ${scannedFiles.length} ` +
+  `README version sync OK: ${checkedLiterals} version literals across ${literalFiles.size} ` +
     `files match ${knownVersions.join(', ')}.`,
 );
 
@@ -56,6 +61,7 @@ function checkStatusLiterals(relativeFilePath, expectedVersions) {
   for (const match of matchFile(relativeFilePath, statusPattern)) {
     const [literal, version, releaseLineMajor] = match;
     checkedLiterals += 1;
+    literalFiles.add(relativeFilePath);
 
     if (!expectedVersions.includes(version)) {
       failures.push(
@@ -83,12 +89,42 @@ function checkReleaseLineLiterals(relativeFilePath, expectedVersions) {
   for (const match of matchFile(relativeFilePath, contributingPattern)) {
     const [literal, releaseLine] = match;
     checkedLiterals += 1;
+    literalFiles.add(relativeFilePath);
 
     if (!expectedReleaseLines.includes(releaseLine)) {
       failures.push(
         `${relativeFilePath}: "${literal}" declares the ${releaseLine}.x line; expected ${expectedReleaseLines
           .map(expected => `${expected}.x`)
           .join(' or ')}`,
+      );
+    }
+  }
+}
+
+/**
+ * The release guide states the current published version in prose. It drifted
+ * three releases behind (it still said 0.3.0 at 0.5.1) because nothing checked
+ * it; the literal is now required to exist and to match, so rewording the line
+ * fails the gate instead of silently leaving it unchecked.
+ */
+function checkReleasePage(expectedVersions) {
+  if (!fs.existsSync(path.join(repoRoot, releasePagePath))) {
+    return;
+  }
+  const matches = matchFile(releasePagePath, releasePagePattern);
+  if (matches.length === 0) {
+    failures.push(
+      `${releasePagePath}: no "current published version is \`X.Y.Z\`" line to verify — ` +
+        'restore it, or update scripts/check-readme-version.mjs to the new wording',
+    );
+    return;
+  }
+  for (const [literal, version] of matches) {
+    checkedLiterals += 1;
+    literalFiles.add(releasePagePath);
+    if (!expectedVersions.includes(version)) {
+      failures.push(
+        `${releasePagePath}: "${literal}" declares ${version}; expected ${expectedVersions.join(' or ')}`,
       );
     }
   }
