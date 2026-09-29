@@ -46,6 +46,32 @@ updates:
           - "zod"
           - "@nestjs/testing"
 
+  # The docs site is its own npm project (website/package-lock.json), outside
+  # the root workspaces, so the "/" entry above never sees it: until this entry
+  # existed its advisories went unreported, and an audit on 2026-09-29 found 29.
+  # Docusaurus packages move in lockstep, so they arrive as one group.
+  - package-ecosystem: "npm"
+    directory: "/website"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "09:00"
+      timezone: "America/Sao_Paulo"
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: "docs"
+      include: "scope"
+    groups:
+      docusaurus:
+        patterns:
+          - "@docusaurus/*"
+      docs-minor-patch:
+        update-types:
+          - "minor"
+          - "patch"
+        patterns:
+          - "*"
+
   - package-ecosystem: "github-actions"
     directory: "/"
     schedule:

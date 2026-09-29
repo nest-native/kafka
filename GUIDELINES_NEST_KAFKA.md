@@ -219,8 +219,15 @@ deliver on Confluent's officially supported client, never hide Kafka semantics.
   package-only. Trigger: `image-size` (GHSA-w3rx-r6r6-pgpr,
   GHSA-5p2g-fcmc-qvqq) has NO patched version — 2.0.2 is both the latest
   release and vulnerable — and arrives through `@docusaurus/mdx-loader`, so the
-  gate was unfixable by any dependency change. Dependabot still tracks the
-  website tree; fix docs advisories when a fix exists.
+  gate was unfixable by any dependency change. Fix docs advisories when a fix
+  exists. Dependabot tracks the website tree only through its own `/website`
+  entry in `.github/dependabot.yml`: the root entry never reads
+  `website/package-lock.json`, so until that entry existed nothing reported
+  the site's advisories, and an audit on 2026-09-29 found 29 (5 high).
+  `audit fix` cleared 12; the rest came from `uuid` < 11.1.1 under
+  `sockjs` (the dev server only), which `website/package.json` overrides to
+  `^11.1.1` — `sockjs` calls only `uuid.v4()`, which 11.x keeps in CommonJS.
+  Drop the override once Docusaurus's own chain moves past it.
 
 - **Strictness scope.** The non-negotiables (100% coverage, cognitive-complexity
   ≤ 15, zero published runtime deps, isolated major-version review) govern the
