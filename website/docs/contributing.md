@@ -46,7 +46,7 @@ Every PR includes an explicit security pass:
 ## Cognitive Complexity
 
 When a change touches `packages/kafka/**/*.ts`, run `npm run complexity:check`
-and `npm run complexity:report`. CI enforces the SonarJS threshold of `15` per
+and `npm run complexity:report`. CI enforces the Biome threshold of `15` per
 source function. Complexity is never reduced by weakening the architecture, API
 clarity, rebalance safety, or coverage.
 

@@ -13,7 +13,7 @@ typecheck job additionally runs on Node 24.
 | --- | --- |
 | `typecheck` | The package and every sample type-check. |
 | `test:cov` | `node:test` + `c8` with **100% statements, branches, functions, and lines** enforced on the package source. |
-| `complexity:check` | ESLint + SonarJS cognitive-complexity threshold of `15` per source function. |
+| `complexity:check` | Biome cognitive-complexity threshold of `15` per source function. |
 | `complexity:report` | Generates the per-function complexity summary. |
 | `release:check` | README link validation, sample-version sync, and package tarball validation. |
 | `security:audit` | A high-severity supply-chain audit. |
@@ -27,7 +27,7 @@ on each pull request.
 
 ## Cognitive Complexity
 
-SonarJS enforces a cognitive-complexity threshold of `15` per source function.
+Biome enforces a cognitive-complexity threshold of `15` per source function.
 Complexity is never reduced by weakening the Nest-native architecture, the public
 API clarity, rebalance safety, or test coverage.
 

@@ -227,7 +227,7 @@ packages, using `node:test` and `c8`:
   every other job, on Node.js 22
 - coverage with `c8`, enforced at 100% for statements, branches, functions, and lines
 - sticky PR comments for coverage, test performance, and cognitive complexity
-- cognitive complexity enforcement with SonarJS threshold `15`
+- cognitive complexity enforcement with Biome, threshold `15`
 - package tarball validation and README link validation
 - supply-chain audit for high-severity issues
 - a NestJS compatibility matrix that installs each end of the published peer

@@ -269,7 +269,7 @@ deliver on Confluent's officially supported client, never hide Kafka semantics.
 
 - When changes touch `packages/kafka/**/*.ts`, run `npm run complexity:check`
   and `npm run complexity:report`.
-- CI enforces SonarJS cognitive-complexity threshold of `15` per package
+- CI enforces a cognitive-complexity threshold of `15`, with Biome (`complexity/noExcessiveCognitiveComplexity`, config in `biome.json`), per package
   source function.
 - Do not reduce complexity by weakening Nest-native architecture, public
   API clarity, rebalance safety, or test coverage.
