@@ -446,4 +446,4 @@ handlers port through the request-reply bridge above
 - Source and issues: [github.com/nest-native/kafka](https://github.com/nest-native/kafka)
 - Changelog: [CHANGELOG.md](../../CHANGELOG.md)
 - Confluent client: [confluentinc/confluent-kafka-javascript](https://github.com/confluentinc/confluent-kafka-javascript)
-- The nest-native family: [@nest-native/drizzle](https://www.npmjs.com/package/@nest-native/drizzle), [@nest-native/trpc](https://www.npmjs.com/package/@nest-native/trpc)
+- The nest-native family: [nest-native.dev](https://nest-native.dev/)
