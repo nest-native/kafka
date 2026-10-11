@@ -296,6 +296,5 @@ See [CHANGELOG.md](CHANGELOG.md) for the per-release detail.
 
 [MIT](LICENSE) © 2026 Rodrigo Nogueira.
 
-Part of the [nest-native](https://github.com/nest-native) family, alongside
-[@nest-native/drizzle](https://github.com/nest-native/drizzle) and
-[@nest-native/trpc](https://github.com/nest-native/trpc).
+Part of the [nest-native](https://nest-native.dev/) family of NestJS
+integrations.
