@@ -111,13 +111,24 @@ interface ConfluentClient {
 }
 
 interface ConfluentModule {
-  KafkaJS: { Kafka: new (config: unknown) => ConfluentClient };
+  KafkaJS: {
+    Kafka: new (config: unknown) => ConfluentClient;
+    ErrorCodes: { ERR__DESTROY_BROKER: number };
+  };
 }
 
 /**
  * Pre-create a topic with `numPartitions` partitions. Auto-creation only ever
  * yields a single partition, so the per-partition-concurrency test must create
  * the topic explicitly to have partitions to spread across.
+ *
+ * Retried only for ERR__DESTROY_BROKER ("Broker handle destroyed without
+ * termination"). Once librdkafka learns the broker list from the cluster it
+ * retires the connection it bootstrapped through and fails the requests still
+ * queued on it. It retries its own metadata requests on that error but not
+ * admin requests, so a CreateTopics sent right after connect can lose the race
+ * (it failed nest-native/reference-app's live-broker job once, 2026-10-22).
+ * Creating a topic that already exists succeeds, so retrying is safe.
  */
 async function createTopic(topic: string, numPartitions: number): Promise<void> {
   // The peer is installed in the integration job; requiring it here (only when a
@@ -127,10 +138,33 @@ async function createTopic(topic: string, numPartitions: number): Promise<void> 
   const admin = new KafkaJS.Kafka({ kafkaJS: { brokers } }).admin();
   await admin.connect();
   try {
-    await admin.createTopics({ topics: [{ topic, numPartitions }] });
+    for (let attempt = 1; ; attempt += 1) {
+      try {
+        await admin.createTopics({ topics: [{ topic, numPartitions }] });
+        return;
+      } catch (error) {
+        const retired = KafkaJS.ErrorCodes.ERR__DESTROY_BROKER;
+        if (attempt >= CREATE_TOPIC_ATTEMPTS || !everyErrorHasCode(error, retired)) {
+          throw error;
+        }
+        await delay(250 * attempt);
+      }
+    }
   } finally {
     await admin.disconnect();
   }
+}
+
+const CREATE_TOPIC_ATTEMPTS = 5;
+
+/** True when `error` aggregates per-topic errors that all carry `code`. */
+function everyErrorHasCode(error: unknown, code: number): boolean {
+  const errors = (error as { errors?: unknown } | null)?.errors;
+  return (
+    Array.isArray(errors) &&
+    errors.length > 0 &&
+    errors.every((item) => (item as { code?: unknown } | null)?.code === code)
+  );
 }
 
 interface ReceivedMessage {
