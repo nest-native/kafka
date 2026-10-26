@@ -8,6 +8,13 @@ package release is useful for users.
 
 ## Unreleased
 
+- **Tests: the live-broker suite retries topic creation on a retired
+  connection.** `createTopic()` in `kafka.integration.spec.ts` retries
+  `createTopics` up to five times when every per-topic error is librdkafka's
+  `ERR__DESTROY_BROKER`, which it raises for requests still queued on the
+  bootstrap connection it retires once it learns the broker list. Published
+  package unchanged.
+
 - **Dependency advisories, published package unchanged.** In `website/`:
   `shell-quote` 1.12, `compression` 1.8.2, `source-map-js` 1.2.2 and
   `proxy-addr` 2.0.8 within their ranges, and overrides for `tinypool` `^2.1.2`
