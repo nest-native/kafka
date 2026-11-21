@@ -38,6 +38,7 @@ updates:
           - "@nestjs/common"
           - "@nestjs/core"
           - "@nestjs/microservices"
+          - "@nestjs/outbox"
           - "@nestjs/platform-express"
           - "@nestjs/platform-fastify"
           - "class-validator"

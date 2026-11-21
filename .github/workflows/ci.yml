@@ -342,15 +342,18 @@ jobs:
           | `05-transactions` | In-memory transactional broker; no broker required |
           | `06-microservice-migration` | In-memory `KafkaTestModule` broker; no broker required |
           | `07-request-reply` | In-memory `KafkaTestModule` broker; no broker required |
+          | `08-outbox` | In-memory `KafkaTestModule` broker and outbox store; no broker required |
 
           Set `KAFKA_BROKERS` to run the same sample against a real Kafka cluster
           through Confluent's client. Broker credentials are never printed in this
           summary. The dedicated `integration` job exercises a real produce ->
           consume round-trip, a transactional commit, per-topic concurrency,
-          broker-restart recovery, and the request-reply cases (cross-context
+          broker-restart recovery, the request-reply cases (cross-context
           round trip, reply affinity across three instances, a request spanning
-          a restart, and byte-level interop with `@nestjs/microservices`)
-          against a single-node KRaft Kafka.
+          a restart, and byte-level interop with `@nestjs/microservices`), and
+          the outbox transport cases (a relay publish, byte parity with the
+          official `ClientKafka` path, and first-attempt dead letters) against
+          a single-node KRaft Kafka.
           EOF
           sed -i "s/DURATION_PLACEHOLDER/${DURATION_SECONDS}s (${DURATION_MS}ms)/" "$GITHUB_STEP_SUMMARY"
 

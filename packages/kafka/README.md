@@ -42,6 +42,7 @@ pipeline (guards, pipes, interceptors, filters) intact on handler methods.
 | Node.js | `>=22` (`>=22.12` with NestJS 12 — see the note below the table) |
 | NestJS | `^11.0.0 \|\| ^12.0.0` |
 | `@confluentinc/kafka-javascript` | `^1.9` (pin major; tracks librdkafka) |
+| `@nestjs/outbox` | `^0.1.0`, optional, for `@nest-native/kafka/outbox` |
 | Validation | class-validator and Zod, both app-owned |
 
 NestJS 11 runs on any Node.js `>=22`. NestJS 12 is ESM-only, and this package
@@ -429,6 +430,49 @@ means the outcome is **unknown** rather than "it did not happen", and routing
 every reply to every instance costs N-times fan-out (10 replicas x 200
 replies/s x 1 KiB is roughly 2 MiB/s of redundant broker egress). At volumes
 where that hurts, a Kafka round trip is the wrong tool and the docs say so.
+
+### Transactional outbox (`@nestjs/outbox`)
+
+`@nest-native/kafka/outbox` ships `KafkaOutboxTransport`, a transport for the
+official [`@nestjs/outbox`](https://www.npmjs.com/package/@nestjs/outbox) relay
+that publishes through `KafkaProducerService`, on Confluent's client, where the
+official route to Kafka is `ClientProxyTransport` over a kafkajs `ClientKafka`.
+`@nestjs/outbox` is an optional peer, loaded only by this entrypoint; it is
+ESM-only, so it needs Node.js `>=22.12`.
+
+```ts
+import { KafkaOutboxTransport } from '@nest-native/kafka/outbox';
+import { OutboxModule } from '@nestjs/outbox';
+
+OutboxModule.forRoot({ transports: { kafka: KafkaOutboxTransport } });
+```
+
+The class, `KafkaOutboxTransport.with(options)` for a configured class, or an
+instance built in `forRootAsync()`'s factory all work. By default the record is
+the one the official transport produces through a `ClientKafka`, byte for byte:
+the message's topic, key and headers, with the JSON of its `OutboxEnvelope`
+(`id`, `topic`, `key`, `headers`, `createdAt`, `payload`) as the value. A
+`toRecord(message, envelope)` option returns what differs — a topic prefix, the
+bare payload, headers of your own.
+
+A publish resolves on the broker's acknowledgement. A record Kafka can never
+accept — too large, an invalid topic name, a topic this client may not write
+to, a record the broker fails to validate — is thrown as
+`NonRetryableMessageError` and dead-lettered at once; anything else is retried.
+Delivery is at-least-once, so a `@KafkaHandler` reads the envelope with
+`@KafkaMessage()` and deduplicates by its `id` through `OutboxInbox`:
+
+```ts
+@KafkaHandler()
+async onOrderPlaced(@KafkaMessage() envelope: OutboxEnvelope<OrderPlaced>) {
+  await this.inbox.process('billing', envelope.id, () =>
+    this.billing.charge(envelope.payload),
+  );
+}
+```
+
+See the [outbox guide](https://nest-native.dev/kafka/docs/outbox) and
+`sample/08-outbox`.
 
 ### Migrating from `@nestjs/microservices` Kafka
 

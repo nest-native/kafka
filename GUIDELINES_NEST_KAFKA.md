@@ -60,6 +60,10 @@ deliver on Confluent's officially supported client, never hide Kafka semantics.
   - `KafkaTestModule` with in-memory transport for unit tests
   - Driver-backed integration tests gated on a real Kafka in CI; skip
     locally if env missing
+- Outbox (`@nest-native/kafka/outbox`, optional peer `@nestjs/outbox`):
+  - `KafkaOutboxTransport`, a transport for the official outbox relay over
+    `KafkaProducerService`; `KafkaOutboxTransport.with(options)` for the class
+    form with options
 - A migration path from `@nestjs/microservices` Kafka transport must exist
   and stay current.
 
@@ -529,6 +533,28 @@ across providers, and a change that needs another provider's same-phase hook
 to have run first must express that as a dependency (inject it, or move the
 work to an earlier phase) rather than as an assumption about hook sequencing.
 No test asserts a within-phase hook order, and none should.
+
+**An optional peer's integration is an entrypoint of its own, and the root
+never loads it.** `KafkaOutboxTransport` extends `@nestjs/outbox`'s
+`OutboxTransport`, so its module imports the peer when it loads; re-exported
+from the root, it would make every application load `@nestjs/outbox` and fail
+without it. So it lives in a subpath, the way `testing/` does:
+`packages/kafka/outbox/` with an `index.ts` barrel (excluded from coverage, as
+`testing/index.ts` is), an `exports` entry, and the peer optional in
+`peerDependenciesMeta`. Only files under that directory import the peer. Two
+checks hold the rule: `test/kafka-outbox.entrypoint.spec.ts` loads the root
+and `testing` entrypoints in a process where `@nestjs/outbox` cannot be
+resolved, and the outbox entrypoint there too, which must fail, or the check
+proves nothing; and `release:check:pack` requires the tarball to hold every
+file the manifest's `main`, `types` and `exports` name, so an entrypoint cannot
+ship without its files. The peer's range starts at the oldest release whose
+contract the integration implements unchanged (`^0.1.0`: the
+`OutboxTransport` declaration is identical from 0.1.0 to 0.1.4), its latest
+release is a root devDependency so the suites run against it, and it sits in
+the `nest-kafka-peer` Dependabot group with the other peers. On 0.x a minor is
+breaking, so the peer's next minor is adopted the way a peer major is (§1), by
+widening the range. It is ESM-only, so the entrypoint needs `require(esm)` and
+Node.js `>=22.12`, the NestJS 12 floor; `engines` stays `>=22`.
 
 ## Local Full-Mode Verification (optional infra + mutation testing)
 

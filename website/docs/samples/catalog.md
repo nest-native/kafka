@@ -71,3 +71,14 @@ untouched on the same consumer class.
 
 Related docs: [Request-Reply](../request-reply.md),
 [Migration Guide](../migration.md).
+
+## `08-outbox`
+
+The transactional outbox over Kafka: an order and its message written with
+`Outbox.add(tx, ...)` in one transaction, the official `@nestjs/outbox` relay
+publishing through `KafkaOutboxTransport` (configured with `with({toRecord})` to
+prefix the topic), and a `@KafkaHandler` that reads the envelope and
+deduplicates a redelivery with `OutboxInbox`. A rolled-back order publishes
+nothing.
+
+Related docs: [Transactional Outbox](../outbox.md).

@@ -10,6 +10,7 @@ the package's published peer ranges.
 | Node.js | `>=22` (`>=22.12` with NestJS 12 — see the note below the table) |
 | NestJS | `^11.0.0 \|\| ^12.0.0` |
 | `@confluentinc/kafka-javascript` | `^1.9` (pin the major; it tracks librdkafka) |
+| `@nestjs/outbox` | `^0.1.0`, for `@nest-native/kafka/outbox` only |
 | TypeScript | `^6` |
 | Validation | `class-validator` and Zod, both app-owned |
 | Kafka brokers | tested against KRaft `3.8.1` and `4.3.1` |
@@ -27,7 +28,9 @@ runs on any Node.js `>=22`. NestJS 12 is ESM-only; loading it from CommonJS
 code (this package, and every sample) goes through Node's `require(esm)`,
 which is behind a flag before Node.js 22.12.0, so NestJS 12 needs Node.js
 `>=22.12`. `engines` stays `>=22` because the 11 end does not need more;
-CI's NestJS 12 leg runs on a current 22.x.
+CI's NestJS 12 leg runs on a current 22.x. `@nestjs/outbox` is ESM-only too, so
+the `@nest-native/kafka/outbox` entrypoint needs Node.js `>=22.12` on either
+end.
 
 The broker range is tested the same way: the real-broker integration suite
 runs once per end, against a single-node KRaft `3.8.1` and `4.3.1`. Kafka 4 is
@@ -46,6 +49,13 @@ a peer, so applications install only the ecosystems they use:
   you open a real broker connection. Unit tests on `KafkaTestModule` never load it.
 - `class-validator` and Zod are **optional** peers — install whichever validator
   your app uses, or neither.
+- `@nestjs/outbox` is an **optional** peer, imported only by the
+  `@nest-native/kafka/outbox` entrypoint: the package root never loads it. The
+  floor is `0.1.0`: the `OutboxTransport` contract the transport implements,
+  `publish(message, {signal})`, is the same in every release from `0.1.0` to
+  `0.1.4`. The default record matches the official `ClientProxyTransport`'s from
+  `0.1.3`, the release that made that one a Kafka record under the message's key
+  and headers.
 - `@nestjs/common`, `@nestjs/core`, `@nestjs/microservices`, `reflect-metadata`,
   and `rxjs` are required peers.
 

@@ -23,6 +23,7 @@ smoke test proves the ported consumer works using `KafkaTestModule`.
 | `@Ctx() ctx: KafkaContext` | `@KafkaCtx() ctx: KafkaContext` |
 | (read headers off the raw message) | `@KafkaHeaders()` |
 | `ClientKafka` + `client.emit()` / `client.send()` | `KafkaProducerService` (`send` / `sendBatch` / `transactional`) or `@InjectKafkaProducer()` |
+| `@nestjs/outbox`'s `ClientProxyTransport` over a `ClientKafka` | `KafkaOutboxTransport` from `@nest-native/kafka/outbox`, which produces the same record ([guide](../website/docs/outbox.md)) |
 | `app.connectMicroservice(...)` + `app.startAllMicroservices()` | nothing — consumers start on application bootstrap |
 | Custom test harness / real broker | `KafkaTestModule` (in-memory) + `createMockKafkaProducer()` |
 

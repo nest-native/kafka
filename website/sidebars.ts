@@ -26,6 +26,7 @@ const sidebars: SidebarsConfig = {
     'testing',
     'migration',
     'request-reply',
+    'outbox',
     {
       type: 'category',
       label: 'Samples',

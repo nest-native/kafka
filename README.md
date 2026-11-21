@@ -80,6 +80,7 @@ This package's headline differentiators:
 | Node.js | `>=22` (`>=22.12` with NestJS 12 — see the note below the table) |
 | NestJS | `^11.0.0 \|\| ^12.0.0` |
 | `@confluentinc/kafka-javascript` | `^1.9` (pin major; tracks librdkafka) |
+| `@nestjs/outbox` | `^0.1.0`, optional, for `@nest-native/kafka/outbox` |
 | Validation | class-validator and Zod, both app-owned |
 
 NestJS 11 runs on any Node.js `>=22`. NestJS 12 is ESM-only, and this package
@@ -97,8 +98,9 @@ This repository contains:
 
 - [`packages/kafka`](packages/kafka): the `@nest-native/kafka` integration package
 - [`sample`](sample): the runnable sample catalog (producer basics, consumer
-  enhancers, headers/context/errors, batch + concurrency, transactions, and the
-  `@nestjs/microservices` migration)
+  enhancers, headers/context/errors, batch + concurrency, transactions, the
+  `@nestjs/microservices` migration, request-reply, and the transactional
+  outbox)
 - [`website`](website): the [documentation site](https://nest-native.dev/kafka/) source
 - [`scripts`](scripts): quality, coverage, complexity, and release-check helpers
 - [`CONTRIBUTING.md`](CONTRIBUTING.md): contributor workflow, including the
@@ -204,6 +206,28 @@ mapping, graceful shutdown, the parameter decorators, and the testing utilities 
 is covered in the package [README](packages/kafka/README.md) and the
 [documentation site](https://nest-native.dev/kafka/).
 
+## Transactional Outbox
+
+`@nest-native/kafka/outbox` ships `KafkaOutboxTransport`, a transport for the
+official [`@nestjs/outbox`](https://www.npmjs.com/package/@nestjs/outbox) relay
+that publishes through this package's producer — where the official route to
+Kafka is `ClientProxyTransport` over a kafkajs `ClientKafka`:
+
+```ts
+import { KafkaOutboxTransport } from '@nest-native/kafka/outbox';
+import { OutboxModule } from '@nestjs/outbox';
+
+OutboxModule.forRoot({ transports: { kafka: KafkaOutboxTransport } });
+```
+
+By default it produces the official transport's record byte for byte, so
+consumers of that path keep working; `toRecord` changes the wire. A record
+Kafka can never accept is dead-lettered at once, anything else is retried, and
+delivery is at-least-once, so consumers deduplicate by the envelope's `id` with
+`OutboxInbox`. `@nestjs/outbox` is an optional peer, loaded only by this
+entrypoint. See [the outbox guide](website/docs/outbox.md) and
+[`sample/08-outbox`](sample/08-outbox).
+
 ## Resilience
 
 Broker reconnection, metadata refresh, and consumer-group re-join are handled by
@@ -240,7 +264,9 @@ packages, using `node:test` and `c8`:
   `'retry'`, a mid-stream graceful shutdown that loses nothing, a retry
   backoff that pauses only the failing partition, a dead-letter round trip,
   a pattern subscription that picks up a topic created while running, a health
-  indicator that reports a frozen broker down, and a **broker restart** against
+  indicator that reports a frozen broker down, the outbox transport (a relay
+  publish, byte parity with the official `ClientKafka` path, and permanent
+  refusals dead-lettered at once), and a **broker restart** against
   a single-node KRaft Kafka, once on 3.x and once on 4.x (skipped locally unless `KAFKA_BROKERS` is set;
   the restart case additionally needs `KAFKA_RESTART_CONTAINER`)
 

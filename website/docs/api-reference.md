@@ -1,7 +1,8 @@
 # API Reference
 
 The exported surface of `@nest-native/kafka`. Everything below is imported from
-the package root.
+the package root, except the [Outbox](#outbox) and [Testing](#testing)
+utilities, which have entrypoints of their own.
 
 ## Module
 
@@ -90,6 +91,19 @@ Opt-in, and inert until `requestReply` is configured. See
 | `DEFAULT_KAFKA_REQUEST_REPLY_HEADERS` | const | The default header key map. |
 | `DEFAULT_REQUEST_TIMEOUT_MS` | const | `30000`. |
 | `DEFAULT_READINESS_TIMEOUT_MS` | const | `10000`. |
+
+## Outbox
+
+Imported from the `@nest-native/kafka/outbox` entrypoint, which needs the
+optional peer `@nestjs/outbox`; the package root never loads it. See
+[Transactional Outbox](outbox.md).
+
+| Export | Kind | Notes |
+| --- | --- | --- |
+| `KafkaOutboxTransport` | class | An `OutboxTransport` for `@nestjs/outbox`'s relay, over `KafkaProducerService`: `new KafkaOutboxTransport(producer, options?)`, or the class itself in `OutboxModule.forRoot({transports})`. Permanent produce failures throw `NonRetryableMessageError`. |
+| `KafkaOutboxTransport.with` | static method | `(options) => Type<KafkaOutboxTransport>` — the class configured with options, for `forRoot`. |
+| `KafkaOutboxTransportOptions` | interface | `toRecord?(message, envelope)` — what differs from the default record. |
+| `KafkaOutboxRecord` | interface | What `toRecord` returns: `topic`, `key`, `value`, `headers`, `partition`, each optional. |
 
 ## Driver
 
