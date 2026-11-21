@@ -30,6 +30,10 @@ Current samples:
   `@KafkaHandler({ reply: true })` answering `KafkaRequestReplyService.request()`,
   error replies, timeouts as *unknown* outcomes, and fire-and-forget handlers
   left untouched (see [`website/docs/request-reply.md`](../website/docs/request-reply.md)).
+- `08-outbox` — the official `@nestjs/outbox` relay publishing through
+  `KafkaOutboxTransport`: the message written in the order's transaction, the
+  default wire with a prefixed topic, and a `@KafkaHandler` that deduplicates
+  redeliveries with `OutboxInbox` (see [`website/docs/outbox.md`](../website/docs/outbox.md)).
 
 ## Commands
 

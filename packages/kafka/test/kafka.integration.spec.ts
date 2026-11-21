@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { execFile } from 'node:child_process';
-import { randomUUID } from 'node:crypto';
+import { randomBytes, randomUUID } from 'node:crypto';
 import { setTimeout as delay } from 'node:timers/promises';
 import { after, before, describe, it } from 'node:test';
 import { promisify } from 'node:util';
@@ -25,6 +25,21 @@ import {
   RpcException,
   Transport,
 } from '@nestjs/microservices';
+import {
+  ClientProxyTransport,
+  type InMemoryOutboxStore,
+  type NewOutboxMessage,
+  Outbox,
+  OutboxDeadLetters,
+  type OutboxEnvelope,
+  type OutboxEvent,
+  OutboxEvents,
+  OutboxInbox,
+  type OutboxMessage,
+  OutboxModule,
+  OutboxRelay,
+  OutboxStorage,
+} from '@nestjs/outbox';
 import { Test, TestingModule } from '@nestjs/testing';
 import { lastValueFrom } from 'rxjs';
 import { KafkaMessageHeaders, createConfluentDriver } from '../driver';
@@ -41,6 +56,7 @@ import {
   KafkaReplyTimeoutError,
 } from '../kafka-request-reply.errors';
 import { KafkaRequestReplyService } from '../kafka-request-reply.service';
+import { KafkaOutboxTransport } from '../outbox';
 
 /**
  * Real-broker integration suite for `@nest-native/kafka`.
@@ -69,7 +85,8 @@ import { KafkaRequestReplyService } from '../kafka-request-reply.service';
  * while running, a health indicator that reports a frozen broker down within
  * its timeout and up once it answers again, and recovery across a broker
  * restart.
- * The second covers request-reply (ADR 0001) — see its own header below. Every
+ * The second covers request-reply (ADR 0001), and the third the outbox
+ * transport (`@nest-native/kafka/outbox`) — see their own headers below. Every
  * topic and group name is unique per run, so repeated CI runs against the same
  * broker never collide.
  */
@@ -101,7 +118,11 @@ interface AdminClient {
   connect(): Promise<void>;
   disconnect(): Promise<void>;
   createTopics(args: {
-    topics: { topic: string; numPartitions: number }[];
+    topics: {
+      topic: string;
+      numPartitions: number;
+      configEntries?: { name: string; value: string }[];
+    }[];
   }): Promise<unknown>;
   listTopics(): Promise<string[]>;
 }
@@ -120,7 +141,8 @@ interface ConfluentModule {
 /**
  * Pre-create a topic with `numPartitions` partitions. Auto-creation only ever
  * yields a single partition, so the per-partition-concurrency test must create
- * the topic explicitly to have partitions to spread across.
+ * the topic explicitly to have partitions to spread across. `config` sets topic
+ * configurations (`max.message.bytes`, `cleanup.policy`, ...).
  *
  * Retried only for ERR__DESTROY_BROKER ("Broker handle destroyed without
  * termination"). Once librdkafka learns the broker list from the cluster it
@@ -130,7 +152,11 @@ interface ConfluentModule {
  * (it failed nest-native/reference-app's live-broker job once, 2026-10-22).
  * Creating a topic that already exists succeeds, so retrying is safe.
  */
-async function createTopic(topic: string, numPartitions: number): Promise<void> {
+async function createTopic(
+  topic: string,
+  numPartitions: number,
+  config: Record<string, string> = {},
+): Promise<void> {
   // The peer is installed in the integration job; requiring it here (only when a
   // broker is configured) keeps the package's lazy-load contract intact.
   const { KafkaJS } =
@@ -140,7 +166,17 @@ async function createTopic(topic: string, numPartitions: number): Promise<void> 
   try {
     for (let attempt = 1; ; attempt += 1) {
       try {
-        await admin.createTopics({ topics: [{ topic, numPartitions }] });
+        const configEntries = Object.entries(config).map(([name, value]) => ({
+          name,
+          value,
+        }));
+        await admin.createTopics({
+          topics: [
+            configEntries.length > 0
+              ? { topic, numPartitions, configEntries }
+              : { topic, numPartitions },
+          ],
+        });
         return;
       } catch (error) {
         const retired = KafkaJS.ErrorCodes.ERR__DESTROY_BROKER;
@@ -1893,6 +1929,396 @@ describe('Kafka request-reply real-broker integration', { skip }, () => {
     } finally {
       await client.close();
       await replier.close();
+    }
+  });
+
+  before(() => {
+    assert.equal(brokers.length > 0, true);
+  });
+});
+
+/**
+ * A record as the consumer received it, every byte base64-encoded, so that two
+ * records compare equal only if their keys, values and headers are the same
+ * bytes, whichever client produced them.
+ */
+interface ConsumedRecord {
+  key: string | null;
+  value: string | null;
+  headers: Record<string, string[]>;
+}
+
+function consumedRecord(context: KafkaContext): ConsumedRecord {
+  const { key, value } = context.getMessage();
+  return {
+    key: base64(key),
+    value: base64(value),
+    headers: Object.fromEntries(
+      Object.entries(context.getHeaders()).map(([name, raw]) => [
+        name,
+        (Array.isArray(raw) ? raw : [raw]).map(item => base64(item) ?? ''),
+      ]),
+    ),
+  };
+}
+
+function base64(bytes: Buffer | string | null | undefined): string | null {
+  return bytes === null || bytes === undefined
+    ? null
+    : Buffer.from(bytes).toString('base64');
+}
+
+function utf8(bytes: string | null): string | null {
+  return bytes === null ? null : Buffer.from(bytes, 'base64').toString('utf8');
+}
+
+/**
+ * What the outbox consumers below received: the warm-up probes (plain text, so
+ * the handler sees a string), and every other record as consumed.
+ */
+@Injectable()
+class OutboxSink {
+  readonly probes = new Set<string>();
+  readonly records: ConsumedRecord[] = [];
+  readonly envelopes: OutboxEnvelope[] = [];
+}
+
+/**
+ * Real-broker suite for the outbox transport (`@nest-native/kafka/outbox`): the
+ * official `@nestjs/outbox` relay publishing through `KafkaOutboxTransport` and
+ * Confluent's client, which the in-memory broker cannot stand in for. It proves
+ * that the relay's publish resolves on a real acknowledgement and reaches a
+ * `@KafkaHandler`; that the default record is byte for byte the one the official
+ * `ClientProxyTransport` produces through a real `ClientKafka` (kafkajs); and
+ * that the client's permanent refusals — a record too large for the topic or for
+ * the producer, a record the broker fails to validate, an invalid topic name —
+ * are dead-lettered on the first attempt, with retry budget left.
+ *
+ * The relay runs with `enabled: false` and each case drives it with
+ * `runOnce()`, so nothing polls behind the assertions. The outbox stores are
+ * the module's in-memory defaults.
+ */
+describe('Kafka outbox transport real-broker integration', { skip }, () => {
+  const driverFactory = createConfluentDriver;
+  const clientId = unique('nest-native-kafka-outbox');
+  /** Driven by `runOnce()`, with time for a first produce to a new topic. */
+  const relay = { enabled: false, lease: '60s', publishTimeout: '30s' } as const;
+
+  /** `Outbox.add()` in a transaction of the in-memory store, as an app would in its own. */
+  async function add(app: TestingModule, message: NewOutboxMessage): Promise<OutboxMessage> {
+    const store = app.get(OutboxStorage).messages as InMemoryOutboxStore;
+    const outbox = app.get(Outbox);
+    return store.transaction(tx => outbox.add(tx, message));
+  }
+
+  /** An application that relays the outbox through `KafkaOutboxTransport`, consuming nothing. */
+  async function startRelay(): Promise<{ app: TestingModule; events: OutboxEvent[] }> {
+    @Module({
+      imports: [
+        KafkaModule.forRoot({ clientId, client: { brokers }, driverFactory }),
+        OutboxModule.forRoot({
+          transports: { kafka: KafkaOutboxTransport },
+          // A budget the relay would spend on a failure it may retry.
+          retry: { attempts: 5, backoff: () => 0 },
+          relay,
+        }),
+      ],
+    })
+    class RelayModule {}
+
+    const app = await Test.createTestingModule({ imports: [RelayModule] }).compile();
+    await app.init();
+    const events: OutboxEvent[] = [];
+    app.get(OutboxEvents).events$.subscribe(event => events.push(event));
+    return { app, events };
+  }
+
+  /**
+   * Run the relay once and require `id` dead-lettered by that first attempt, its
+   * recorded error matching `refusal`. On failure, the message names what the
+   * relay did instead, and with which error, since CI is the only place this runs.
+   */
+  async function expectDeadLetteredOnFirstAttempt(
+    app: TestingModule,
+    events: OutboxEvent[],
+    id: string,
+    refusal: RegExp,
+  ): Promise<void> {
+    const run = await app.get(OutboxRelay).runOnce();
+    const seen = events.map(event =>
+      'error' in event
+        ? `${event.type}: ${String((event.error as Error | undefined)?.message ?? event.error)}`
+        : event.type,
+    );
+    assert.equal(
+      run.deadLettered,
+      1,
+      `expected a dead letter on the first attempt; relay run ${JSON.stringify(run)}, events ${JSON.stringify(seen)}`,
+    );
+    const letter = await app.get(OutboxDeadLetters).get(id);
+    assert.ok(letter, 'the dead letter is in the store');
+    assert.equal(letter.reason, 'rejected');
+    assert.equal(letter.attempts, 1);
+    assert.match(String(letter.lastError), refusal);
+  }
+
+  it('relays an outbox message through the Confluent producer to a @KafkaHandler', async () => {
+    const topic = unique('it.outbox.relay');
+    const groupId = unique('it-outbox-relay-group');
+    await createTopic(topic, 1);
+
+    @Injectable()
+    @KafkaConsumer(topic, { groupId })
+    class OrdersConsumer {
+      constructor(
+        private readonly sink: OutboxSink,
+        private readonly inbox: OutboxInbox,
+      ) {}
+
+      @KafkaHandler()
+      async handle(
+        @KafkaMessage() payload: unknown,
+        @KafkaCtx() context: KafkaContext,
+      ): Promise<void> {
+        if (typeof payload === 'string') {
+          this.sink.probes.add(payload);
+          return;
+        }
+        const envelope = payload as OutboxEnvelope;
+        this.sink.records.push(consumedRecord(context));
+        await this.inbox.process(groupId, envelope.id, () => {
+          this.sink.envelopes.push(envelope);
+        });
+      }
+    }
+
+    @Module({
+      imports: [
+        KafkaModule.forRoot({ clientId, client: { brokers }, driverFactory }),
+        OutboxModule.forRoot({ transports: { kafka: KafkaOutboxTransport }, relay }),
+      ],
+      providers: [OutboxSink, OrdersConsumer],
+    })
+    class OutboxRelayModule {}
+
+    const app = await Test.createTestingModule({
+      imports: [OutboxRelayModule],
+    }).compile();
+    await app.init();
+
+    try {
+      const sink = app.get(OutboxSink);
+      await warmUpUntil(app.get(KafkaProducerService), topic, probe =>
+        sink.probes.has(probe),
+      );
+
+      const added = await add(app, {
+        topic,
+        key: 'order-1',
+        headers: { 'x-tenant': 'acme' },
+        payload: { orderId: 'order-1', total: 42 },
+      });
+      const run = await app.get(OutboxRelay).runOnce();
+
+      // runOnce() settles after markPublished, which follows the broker's ack.
+      assert.equal(run.published, 1, JSON.stringify(run));
+      await waitFor(() => sink.envelopes.length === 1);
+      const [envelope] = sink.envelopes;
+      assert.equal(envelope.id, added.id);
+      assert.equal(envelope.topic, topic);
+      assert.equal(envelope.key, 'order-1');
+      assert.deepEqual(envelope.headers, { 'x-tenant': 'acme' });
+      assert.deepEqual(envelope.payload, { orderId: 'order-1', total: 42 });
+      const [record] = sink.records;
+      assert.equal(utf8(record.key), 'order-1');
+      assert.deepEqual(record.headers['x-tenant']?.map(utf8), ['acme']);
+    } finally {
+      await app.close();
+    }
+  });
+
+  it('produces the same key, value and headers as the official ClientProxyTransport over a real ClientKafka', async () => {
+    const topic = unique('it.outbox.parity');
+    const groupId = unique('it-outbox-parity-group');
+    await createTopic(topic, 1);
+
+    @Injectable()
+    @KafkaConsumer(topic, { groupId })
+    class ParityConsumer {
+      constructor(private readonly sink: OutboxSink) {}
+
+      @KafkaHandler()
+      handle(@KafkaMessage() payload: unknown, @KafkaCtx() context: KafkaContext): void {
+        if (typeof payload === 'string') {
+          this.sink.probes.add(payload);
+          return;
+        }
+        this.sink.records.push(consumedRecord(context));
+      }
+    }
+
+    @Module({
+      imports: [KafkaModule.forRoot({ clientId, client: { brokers }, driverFactory })],
+      providers: [OutboxSink, ParityConsumer],
+    })
+    class ParityModule {}
+
+    const app = await Test.createTestingModule({ imports: [ParityModule] }).compile();
+    await app.init();
+    // The official route to Kafka: ClientProxyTransport over a ClientKafka,
+    // which is kafkajs underneath. It only produces here.
+    const clientKafka = new ClientKafka({
+      client: { clientId: unique('official'), brokers },
+      producerOnlyMode: true,
+    });
+
+    try {
+      const sink = app.get(OutboxSink);
+      await warmUpUntil(app.get(KafkaProducerService), topic, probe =>
+        sink.probes.has(probe),
+      );
+      await clientKafka.connect();
+      const OfficialTransport = ClientProxyTransport('OFFICIAL_KAFKA');
+      const official = new OfficialTransport(clientKafka);
+      const ours = new KafkaOutboxTransport(app.get(KafkaProducerService));
+      const live = { signal: new AbortController().signal };
+      const createdAt = Date.now();
+      const messages: OutboxMessage[] = [
+        {
+          id: randomUUID(),
+          topic,
+          key: 'order-1',
+          headers: { 'x-tenant': 'acme', 'x-trace': randomUUID() },
+          payload: { customer: 'Zoë — “Ünïcode” ☕', lines: [{ sku: 'A-1', qty: 2 }], gift: false },
+          createdAt,
+          availableAt: createdAt,
+          attempts: 0,
+          lastError: null,
+        },
+        {
+          id: randomUUID(),
+          topic,
+          key: null,
+          headers: {},
+          payload: ['no key', 'no headers', 1, null],
+          createdAt,
+          availableAt: createdAt,
+          attempts: 0,
+          lastError: null,
+        },
+      ];
+
+      for (const message of messages) {
+        // One at a time onto the topic's one partition, so the official record
+        // is consumed first and ours second.
+        const before = sink.records.length;
+        await official.publish(message, live);
+        await waitFor(() => sink.records.length === before + 1);
+        await ours.publish(message, live);
+        await waitFor(() => sink.records.length === before + 2);
+
+        const [theirs, mine] = sink.records.slice(before);
+        assert.deepEqual(mine, theirs, `the records for ${message.id} differ`);
+        assert.deepEqual(JSON.parse(String(utf8(mine.value))), {
+          id: message.id,
+          topic: message.topic,
+          key: message.key,
+          headers: message.headers,
+          createdAt: message.createdAt,
+          payload: message.payload,
+        });
+      }
+    } finally {
+      await clientKafka.close();
+      await app.close();
+    }
+  });
+
+  it("dead-letters a record over the topic's max.message.bytes on its first attempt", async () => {
+    const topic = unique('it.outbox.over-topic-max');
+    await createTopic(topic, 1, { 'max.message.bytes': '1024' });
+    const { app, events } = await startRelay();
+
+    try {
+      const message = await add(app, {
+        topic,
+        key: 'too-large',
+        // About 8 KiB, and incompressible should compression ever be on.
+        payload: { blob: randomBytes(4_096).toString('hex') },
+      });
+
+      await expectDeadLetteredOnFirstAttempt(
+        app,
+        events,
+        message.id,
+        /\(MSG_SIZE_TOO_LARGE, code 10\)/,
+      );
+    } finally {
+      await app.close();
+    }
+  });
+
+  it("dead-letters a record over the producer's message.max.bytes on its first attempt", async () => {
+    // librdkafka's message.max.bytes defaults to 1,000,000: produce() refuses a
+    // larger record before sending it, with the same code as the broker.
+    const topic = unique('it.outbox.over-producer-max');
+    await createTopic(topic, 1);
+    const { app, events } = await startRelay();
+
+    try {
+      const message = await add(app, {
+        topic,
+        key: 'too-large',
+        payload: { blob: 'x'.repeat(1_100_000) },
+      });
+
+      await expectDeadLetteredOnFirstAttempt(
+        app,
+        events,
+        message.id,
+        /\(MSG_SIZE_TOO_LARGE, code 10\)/,
+      );
+    } finally {
+      await app.close();
+    }
+  });
+
+  it('dead-letters a record the broker fails to validate on its first attempt: no key on a compacted topic', async () => {
+    const topic = unique('it.outbox.compacted');
+    await createTopic(topic, 1, { 'cleanup.policy': 'compact' });
+    const { app, events } = await startRelay();
+
+    try {
+      const message = await add(app, { topic, payload: { keyless: true } });
+
+      await expectDeadLetteredOnFirstAttempt(
+        app,
+        events,
+        message.id,
+        /\(INVALID_RECORD, code 87\)/,
+      );
+    } finally {
+      await app.close();
+    }
+  });
+
+  it('dead-letters a record for an invalid topic name on its first attempt', async () => {
+    // Spaces are not legal in a topic name: the broker answers the metadata
+    // request with INVALID_TOPIC_EXCEPTION, and librdkafka fails the record.
+    const topic = `it outbox invalid ${randomUUID().slice(0, 8)}`;
+    const { app, events } = await startRelay();
+
+    try {
+      const message = await add(app, { topic, key: 'k', payload: { invalid: true } });
+
+      await expectDeadLetteredOnFirstAttempt(
+        app,
+        events,
+        message.id,
+        /\(TOPIC_EXCEPTION, code 17\)/,
+      );
+    } finally {
+      await app.close();
     }
   });
 

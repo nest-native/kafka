@@ -39,6 +39,11 @@
       "require": "./dist/testing/index.js",
       "default": "./dist/testing/index.js"
     },
+    "./outbox": {
+      "types": "./dist/outbox/index.d.ts",
+      "require": "./dist/outbox/index.js",
+      "default": "./dist/outbox/index.js"
+    },
     "./package.json": "./package.json"
   },
   "files": [
@@ -63,6 +68,7 @@
     "@nestjs/common": "^11.0.0 || ^12.0.0",
     "@nestjs/core": "^11.0.0 || ^12.0.0",
     "@nestjs/microservices": "^11.0.0 || ^12.0.0",
+    "@nestjs/outbox": "^0.1.0",
     "class-validator": "^0.14.0",
     "reflect-metadata": "^0.1.12 || ^0.2.0",
     "rxjs": "^7.0.0",
@@ -70,6 +76,9 @@
   },
   "peerDependenciesMeta": {
     "@confluentinc/kafka-javascript": {
+      "optional": true
+    },
+    "@nestjs/outbox": {
       "optional": true
     },
     "class-validator": {

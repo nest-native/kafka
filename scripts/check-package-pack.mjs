@@ -27,11 +27,20 @@ try {
   }
 
   const filePaths = packResult.files.map(file => file.path);
+  // Every file the manifest points a consumer at — `main`, `types`, and each
+  // target of each `exports` entry (`.`, `./testing`, `./outbox`, ...) — must be
+  // in the tarball, so a new entrypoint cannot ship without its files.
+  const manifest = JSON.parse(
+    fs.readFileSync(path.join(repoRoot, 'packages', 'kafka', 'package.json'), 'utf8'),
+  );
   const requiredFiles = [
-    'README.md',
-    'package.json',
-    'dist/index.js',
-    'dist/index.d.ts',
+    ...new Set([
+      'README.md',
+      'package.json',
+      ...[manifest.main, manifest.types, ...collectExportTargets(manifest.exports)].map(
+        target => target.replace(/^\.\//, ''),
+      ),
+    ]),
   ];
   const missingFiles = requiredFiles.filter(filePath => !filePaths.includes(filePath));
 
@@ -56,8 +65,20 @@ try {
   }
 
   console.log(
-    `Pack validation OK: ${packResult.filename} contains ${packResult.entryCount} expected files.`,
+    `Pack validation OK: ${packResult.filename} contains ${packResult.entryCount} expected files, ` +
+      `including every file the manifest's entrypoints name.`,
   );
 } finally {
   fs.rmSync(tempCache, { recursive: true, force: true });
+}
+
+/** Every file path in an `exports` map, through its condition objects. */
+function collectExportTargets(exportsField) {
+  if (typeof exportsField === 'string') {
+    return [exportsField];
+  }
+  if (exportsField === null || typeof exportsField !== 'object') {
+    return [];
+  }
+  return Object.values(exportsField).flatMap(collectExportTargets);
 }
