@@ -106,7 +106,13 @@ headers decode after the round trip, a pattern subscription that picks
 up a matching topic created while the application runs, and a health
 indicator that reports a frozen broker down within its timeout and up once it
 answers again — the in-memory broker has no commit log, never
-redelivers and never pauses, so only a real broker can show any of it. Every topic and group name is unique per run.
+redelivers and never pauses, so only a real broker can show any of it. For the
+outbox transport it runs the official relay through the Confluent producer,
+compares its record with the one the official `ClientProxyTransport` produces
+through a real `ClientKafka`, byte for byte, and requires the records Kafka
+refuses permanently (too large for the topic or the producer, a keyless record
+on a compacted topic, an invalid topic name) to be dead-lettered on the first
+attempt. Every topic and group name is unique per run.
 
 The suite is **gated on `KAFKA_BROKERS`**: it is skipped when the variable is
 unset, so it never runs during `npm run test:cov` and the 100% coverage gate is

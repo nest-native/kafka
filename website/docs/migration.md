@@ -27,6 +27,7 @@ field-by-field guide is kept in the repository at
 | `@Ctx() ctx: KafkaContext` | `@KafkaCtx() ctx: KafkaContext` |
 | (read headers off the raw message) | `@KafkaHeaders()` |
 | `ClientKafka` + `client.emit()` | `KafkaProducerService` or `@InjectKafkaProducer()` |
+| `@nestjs/outbox`'s `ClientProxyTransport` over a `ClientKafka` | `KafkaOutboxTransport` from `@nest-native/kafka/outbox`, which produces the same record; see [Transactional Outbox](outbox.md) |
 | `app.connectMicroservice(...)` + `app.startAllMicroservices()` | nothing — consumers start on application bootstrap |
 | Custom test harness / real broker | `KafkaTestModule` + `createMockKafkaProducer()` |
 

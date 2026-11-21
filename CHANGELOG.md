@@ -8,6 +8,32 @@ package release is useful for users.
 
 ## Unreleased
 
+- **Outbox transport.** A new entrypoint, `@nest-native/kafka/outbox`, exports
+  `KafkaOutboxTransport`: an `OutboxTransport` for the official `@nestjs/outbox`
+  relay that publishes through `KafkaProducerService`, on Confluent's client,
+  where the official route to Kafka is `ClientProxyTransport` over a kafkajs
+  `ClientKafka`. It registers as the class in `OutboxModule.forRoot({transports})`,
+  as a class configured with `KafkaOutboxTransport.with(options)`, or as an
+  instance built in `forRootAsync()`'s factory. By default it produces the
+  official transport's record byte for byte (the message's topic, key and
+  headers, with the JSON of its `OutboxEnvelope` as the value), so consumers of
+  that path keep working; `toRecord(message, envelope)` returns what differs. A
+  publish resolves on the broker's acknowledgement. A failure a retry can never
+  fix, librdkafka's `ERR_MSG_SIZE_TOO_LARGE` (10), `ERR_TOPIC_EXCEPTION` (17),
+  `ERR_TOPIC_AUTHORIZATION_FAILED` (29) or `ERR_INVALID_RECORD` (87), is thrown
+  as `NonRetryableMessageError` with the client's error as its `cause`, so the
+  relay dead-letters the message at once; anything else is retried. Consumers
+  need no new API: a `@KafkaHandler` reads the envelope with `@KafkaMessage()` and
+  deduplicates by its `id` with `OutboxInbox`. `@nestjs/outbox` (`^0.1.0`) is a
+  new optional peer, loaded only by the new entrypoint, which needs Node.js
+  `>=22.12` because the outbox is ESM-only. Beyond the unit, DI and in-memory
+  end-to-end tests, the real-broker suite runs a relay publish, compares the
+  record with a real `ClientKafka`'s byte for byte, and dead-letters on the
+  first attempt a record too large for the topic or for the producer, a keyless
+  record on a compacted topic, and a record for an invalid topic name. Sample 08
+  shows the flow, and `release:check` now requires the tarball to hold every
+  file the manifest's entrypoints name.
+
 - **Tests: the live-broker suite retries topic creation on a retired
   connection.** `createTopic()` in `kafka.integration.spec.ts` retries
   `createTopics` up to five times when every per-topic error is librdkafka's

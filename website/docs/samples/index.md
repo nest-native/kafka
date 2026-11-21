@@ -40,5 +40,7 @@ from the environment only.
   [Migration Guide](../migration.md).
 - Porting `@MessagePattern` handlers? Read `07-request-reply` alongside
   [Request-Reply](../request-reply.md).
+- Publishing from a database transaction with `@nestjs/outbox`? Read
+  `08-outbox` alongside [Transactional Outbox](../outbox.md).
 
 See the [Sample Catalog](catalog.md) for the feature-by-feature index.

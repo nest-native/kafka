@@ -31,6 +31,10 @@ Use the shortest path for the decision in front of you.
 - [Migration Guide](migration.md): porting off `@nestjs/microservices`'s Kafka transport
 - [Request-Reply](request-reply.md): the opt-in `@MessagePattern` bridge, its routing, and when not to use it
 
+## Outbox
+
+- [Transactional Outbox](outbox.md): `KafkaOutboxTransport` for the official `@nestjs/outbox` relay, its wire, its failures, and consuming with `OutboxInbox`
+
 ## Samples
 
 - [Samples](samples/index.md): how to choose and run the sample applications
