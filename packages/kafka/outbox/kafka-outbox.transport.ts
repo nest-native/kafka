@@ -1,4 +1,4 @@
-import { Inject, Injectable, Optional, type Type } from '@nestjs/common';
+import { Injectable, Optional, type Type } from '@nestjs/common';
 import {
   type OutboxEnvelope,
   type OutboxMessage,
@@ -53,13 +53,6 @@ export interface KafkaOutboxTransportOptions {
 }
 
 /**
- * Never provided. It stands for the constructor's second argument, so that when
- * Nest builds the transport (the class in `OutboxModule.forRoot`'s `transports`)
- * it passes `undefined` there, instead of failing to resolve an interface.
- */
-const NO_OPTIONS = Symbol('KafkaOutboxTransportOptions');
-
-/**
  * An `OutboxTransport` for the official `@nestjs/outbox` relay that publishes
  * with this package's `KafkaProducerService`, on Confluent's client.
  *
@@ -110,7 +103,12 @@ export class KafkaOutboxTransport extends OutboxTransport {
 
   constructor(
     private readonly producer: KafkaProducerService,
-    @Optional() @Inject(NO_OPTIONS) options: KafkaOutboxTransportOptions = {},
+    // When Nest builds the class, nothing provides this interface, and
+    // `@Optional()` makes it pass `undefined`. No `@Inject` token on purpose: a
+    // subclass that redeclares the constructor, as `with()`'s does, inherits the
+    // token, but NestJS 12.6 does not give it the `@Optional()` flag next to it
+    // (11.x did), so it would fail to resolve.
+    @Optional() options: KafkaOutboxTransportOptions = {},
   ) {
     super();
     this.toRecord = options.toRecord;
