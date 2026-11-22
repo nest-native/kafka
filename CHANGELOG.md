@@ -8,6 +8,8 @@ package release is useful for users.
 
 ## Unreleased
 
+## 0.7.0
+
 - **Outbox transport.** A new entrypoint, `@nest-native/kafka/outbox`, exports
   `KafkaOutboxTransport`: an `OutboxTransport` for the official `@nestjs/outbox`
   relay that publishes through `KafkaProducerService`, on Confluent's client,
